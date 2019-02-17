@@ -1,0 +1,69 @@
+---
+title: "Ordinal"
+author: "Néstor Rodriguez Vico - nrv23@correo.ugr.es"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+```{r}
+# Fijamos la semilla para poder replicar los experimentos
+set.seed(1)
+
+# Leemos el conjunto de datos
+esl <- RWeka::read.arff("material/esl.arff")
+# Generamos el indice de los elementos que perteneceran al conjunto de test
+index <- sample(1:nrow(esl), 100)
+# Contruimos el conjunto de train
+train <- esl[-index,]
+# Contruimos el conjunto de test
+test <- esl[index,]
+
+generate.binary.classifier <- function(data, class) {
+  aux <- data[,-ncol(data)]
+  # La salida va a ser 1 para las instancias cuya clase sea menor o igual que 
+  # la clase que quiere aprender el clasificador para este conjunto de datos
+  out <- as.factor(data[,ncol(data)] <= class)
+  # En este caso, hemos usado randomForest como clasificador
+  return(randomForest::randomForest(aux, out))
+}
+
+generate.classifiers <- function(data) {
+  # Obtenemos las clases objetivo
+  clases <- sort(unique(data[,ncol(data)]))
+  # Para cada clase, excepto la última, generamos el clasificador asociado
+  return(lapply(clases[-length(clases)], generate.binary.classifier, data = data))
+}
+
+get.predictions <- function(model, test) {
+  return(predict(model, test, type = "prob"))
+}
+
+cascade.prob <- function(i, probs) {
+  # nueva probabilidad: producto de las probabilidades de ser una
+  # de las clases menores por la probabilidad de ser esa clase.
+  return(ifelse(i == 1, probs[2, 1], prod(probs[1, 1:(i-1)]) * probs[2, i]))
+}
+
+get.class.prediction <- function(probs) {
+  # Construimos una matriz donde cada columna contiene la probabilidad de pertenecer
+  # a la "clase" 1 (clases menores o iguales que i) y a la "clase" 0
+  new.probs <- matrix(probs, nrow = 2)
+  # Aplicamos el calculo de la probabilidad en cascada
+  new.probs <- c(sapply(1:ncol(new.probs), cascade.prob, probs = new.probs), 
+                 prod(new.probs[1, ]))
+  return(new.probs)
+}
+
+# Calculamos los modelos
+classifiers <- generate.classifiers(train)
+# Calculamos las probabilidades
+probabilities <- matrix(sapply(classifiers, get.predictions, 
+                               test = test[, -ncol(test)]), nrow = 100)
+# Calculamos las clases asociada a las probabilidades
+class.predictions <- apply(probabilities, 1, get.class.prediction)
+# Calculamos la clase final de cada instance
+final.prediction <- apply(class.predictions, 2, which.max)
+# Calculamos el porcentaje de acierto
+accuracy <- mean(final.prediction == test[, ncol(test)])
+accuracy
+```

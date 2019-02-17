@@ -1,0 +1,1791 @@
+---
+title: "Introducción a la Ciencia de Datos: Trabajo final"
+author: "Néstor Rodriguez Vico"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+Carga de librerías:
+
+```{r, warning=FALSE, message=FALSE}
+library(plyr)
+library(dplyr)
+library(moments)
+library(corrplot)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+```
+
+# Análisis de Datos
+
+En este apartado el estudiante debe realizar un estudio precio de sus dos conjuntos de datos asignados (dataset$_R$ y dataset$_C$). Este estudio debe incluir:
+
+## Apartado A1
+
+Descripción del tipo de datos de entrada (lista, data frame, etc., numero de filas, columnas, tipo de datos atómicos, etc.)
+
+---
+
+Lo primero que vamos a hacer es leer los conjuntos de datos, ver el tipo de los datos, ver las dimensiones de los datos, ver los datos parcialmente y comprobar si hay valores perdidos (NA) o no.
+
+```{r}
+concrete <- read.csv('concrete/concrete.dat', comment.char = '@', 
+                     header = FALSE, stringsAsFactors = TRUE)
+# Los nombre de las variables son muy largos y hacen que
+# los gráficos no queden bien, por eso han sido recortados
+colnames(concrete) <- c('cement', 'blast', 'flyash', 'water', 'super', 
+                        'coarse', 'fine', 'age', 'outcome')
+
+pima <- read.csv('pima/pima.dat', comment.char = '@', 
+                 header = FALSE, stringsAsFactors = TRUE)
+colnames(pima) <- c('preg', 'plas', 'pres', 'skin', 'insu', 'mass', 
+                    'pedi', 'axge', 'outcome')
+pima$outcome <- as.factor(pima$outcome)
+
+typeof(concrete)
+typeof(pima)
+is.data.frame(concrete)
+is.data.frame(pima)
+
+dim(concrete)
+dim(pima)
+
+glimpse(concrete)
+glimpse(pima)
+
+all(!is.na(concrete))
+all(!is.na(pima))
+
+sum(duplicated(concrete))
+sum(duplicated(pima))
+```
+
+Como podemos ver, nos encontramos ante dos objetos de tipo lista. Podemos comprobar que son dataframes. En la salida de *glimpse* podemos ver los tipos de datos primitivos que hay en el dataset, los cuales son números enteros o decimales y el factor usado en la clase de *pima*. En ambos casos contamos con 9 dimensiones. *concrete* tiene `r dim(concrete)[1]` instancias y *pima* tiene `r dim(pima)[1]`. También podemos ver que ninguno de los dos conjuntos tiene valores perdidos (valores NA). Viendo los nombres de las variables no podemos suponer que haya ninguna correlación entre ellas a primera vista. Esto lo podremos comprobar más adelante cuando calculemos las correlaciones entre las mismas. También podemos ver que *concrete* tiene `r sum(duplicated(concrete))` valores duplicados, así que vamos a eliminarlos:
+
+```{r}
+dim(concrete)
+concrete <- concrete[!duplicated(concrete),]
+dim(concrete)
+```
+
+
+### Apartado A1.1
+
+Cálculo de media, desviación estándar, etc.
+
+---
+
+Vamos a calcular la media y la desviación típica para cada variable de los dos conjuntos. Debemos tener en cuenta que la última columna de los dataframes es la clase, así que debemos obviarla en estos computos:
+
+```{r}
+apply(concrete[1:ncol(concrete)-1], 2, mean)
+apply(pima[1:ncol(pima)-1], 2, mean)
+
+apply(concrete[1:ncol(concrete)-1], 2, sd)
+apply(pima[1:ncol(pima)-1], 2, sd)
+```
+
+Justo con estos datos también podemos calcular los cuartiles para cada vairble, obteniendo así más información acerca de los datos de entrada:
+
+```{r}
+summary(concrete[1:ncol(concrete)-1])
+summary(pima[1:ncol(pima)-1])
+```
+
+Si nos fijamos en los valores mínimos y máximos de todas las variables en ambos conjuntos encontramos que el dominio de las variables es muy dispares. Esto es importante tenerlo en cuanta cuan apliquemos algoritmos basados en distancias, como *k-NN*, ya que debemos normalizar los datos para tener todas las variables en el mismo rango.
+
+### Apartado A1.2
+
+Gráficos que permitan visualizar los datos adecuadamente.
+
+---
+
+Los gráficos más interesantes para estudiar los datos son los presentados a continuación. Para cada conjunto de datos se han pintados dos gráficos: 
+
+* Gráficos de puntos para poder ver la correlación entre cada par de variables del conjunto de datos.
+* Boxplot de todas las variables del conjunto de datos, para poder ver la distribución de los valores y si hay outliers (puntos anómalos) o no.
+
+```{r}
+pairs(concrete[1:ncol(concrete)-1], pch='.')
+pairs(pima[1:ncol(pima)-1], pch='.')
+
+boxplot(concrete[1:ncol(concrete)-1])
+boxplot(pima[1:ncol(pima)-1])
+```
+
+Como hemos comparado en el apartado *A1.1*, podemos notar la diferencia entre los rangos de las variables. Para poder comparar los boxplots entre ellos vamos a normalizar los datos:
+
+```{r}
+boxplot(scale(concrete[1:ncol(concrete)-1]))
+boxplot(scale(pima[1:ncol(pima)-1]))
+```
+
+### Apartado A1.3
+
+Descripción del conjunto de datos a partir de los puntos anteriores.
+
+---
+
+Una vez tenemos información del conjunto de datos, podemos describirlo con más detalle. Como ya hemos visto, estamos ante conjuntos de datos bastante pequeños, ya que tenemos en torno a 1000 instancias como máximo. Para el caso de *pima*, podemos ver el múmero de instancias pertienecientes a cada clase: 
+
+```{r}
+prop.table(table(pima$outcome))
+```
+
+Otro gráfico interesante que podemos hacer es pintar la distribución que tiene cada variable y calcular mediantela función skewness como de sesgada (o asimétrica) es dicha variable con repecto a la distribución normal. El valor de sesgo/asimetría es el indicado en el título de cada gráfico:
+
+```{r}
+skewplot <- function(data, x){
+  skew <- round(skewness(data[,x]), 4)
+  plot(density(data[,x]), main = skew, xlab = names(data)[x])
+}
+
+par(mfrow=c(2,4))
+for (x in 1:(ncol(concrete)-1)) {
+  skewplot(concrete, x)
+}
+
+for (x in 1:(ncol(pima)-1)) {
+  skewplot(pima, x)
+}
+
+par(mfrow=c(1,1))
+```
+
+En el caso de *concrete* tenemos variables altamente sesgadas a la derecha (la mayoría de datos están a la izquierda) como puede ser la variable *age*, sin embargo tenemos variables cuya distribución se asemeja a una distribución normal, como puede ser la *coarse* o *water*. En el caso de *pima* nos encontramos la misma situación, teniendo variables altamente sesgadas a la derecha, como el caso de *insu* y variables cuya distribución se asemeja a la de una distribución normal, como *plass* o *mass*. Podemos corregir esto aplicando una transformación logarítmica. Vamos a aplicarlo sobre todo el dataset:
+
+```{r}
+concrete.x.log <- concrete[1:(ncol(concrete)-1)] %>% 
+  mutate_all(., ~ ifelse(.!=0, log10(.+0.00000000001), log10(1)))
+concrete.log <- cbind(concrete.x.log, concrete[ncol(concrete)])
+
+pima.x.log <- pima[1:(ncol(pima)-1)] %>% 
+  mutate_all(., ~ ifelse(.!=0, log10(.+0.00000000001), log10(1)))
+pima.log <- cbind(pima.x.log, pima[ncol(pima)])
+
+par(mfrow=c(2,4))
+for (x in 1:(ncol(concrete.log)-1)) {
+  skewplot(concrete.log, x)
+}
+
+for (x in 1:(ncol(pima.log)-1)) {
+  skewplot(pima.log, x)
+}
+
+par(mfrow=c(1,1))
+```
+
+Como podemos ver, el resultado no es mejor que el que teníamos de partida. Las variables que estaban centradas han sido descentradas y las variable donde había varios máximos locales se han acentuado dichos puntos, obteniendo así una gráfica menos parecida aún a la distribución normal; así que vamos a dejar los datos como los teníamos de partida.
+
+Tal y como hemos visto en el apartado A1.2 los gráficos de puntos nos permiten ver si hay cierta correlación entre las variables de los conjuntos de datos. Pero podemos obtener un valor numérico que nos permita decidir si hay correlación entre dos variables o no:
+
+```{r}
+concrete.correlations <- cor(concrete[, setdiff(names(concrete), 'outcome')])
+pima.correlations <- cor(pima[, setdiff(names(pima), 'outcome')])
+```
+
+Una vez tenemos las correlaciones, podemos crear unos gráficos que representen dicha información de un modo muy visual:
+
+```{r}
+corrplot(concrete.correlations, diag = FALSE)
+corrplot(pima.correlations, diag = FALSE)
+```
+
+En el caso de *concrete* podemos ver que hay una correlación (negativa) relativamente alta entre las variables *super* y *water*, con un valor `r cor(concrete$super, concrete$water)`. Si pintamos en una gráfica estas dos variables podemos ver que los datos parecen dibujar una línea descendiente:
+
+```{r}
+plot(concrete$super, concrete$water, pch='.', cex = 3)
+```
+
+En el caso de pima no es tan marcado. La correlación con mayor valor está entre las variables *axge* y *preg*, en este caso positiva, con un valor de `r cor(pima$axge, pima$preg)`. En este caso, si pintamos la gráfica, es más dificil apreciar esa línea ascendiente que forma la nube de puntos:
+
+```{r}
+plot(pima$axge, pima$preg, pch='.', cex = 3)
+```
+
+Si vemos las variables del dataset y sus valores, podemos ver que la variable *age* indica el día del año (un valor de 1 a 365). Podríamos intentar crear una variable nueva que agrupe los valores de la variable *age* del dataset *concrete*. Veamos como se comporta dicha variable:
+
+```{r}
+base_age <- ggplot(concrete, aes(concrete$age))
+base_age <- base_age + geom_histogram(position = "dodge", binwidth = 5)
+base_age <- base_age + ggtitle("Base Age Distribution")
+base_age
+```
+
+Agrupemos ahora la variable por meses:
+
+```{r}
+lower_bound <- c(0, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335)
+
+age.month <- c(1,2,3,4,5,6,7,8,9,10,11,12)
+age.brackets <- c("0-31", "32-59", "60-90", "91-120", "121-151", "152-181", "182-212", 
+                  "213-243", "244-273", "274-304", "305-334", "335-365")
+age.table <- data.frame(age.month, age.brackets)
+
+concrete.new <- join(cbind(concrete, age.month = findInterval(concrete$age, lower_bound)),
+                     age.table, by = "age.month")
+concrete.new$age.brackets <- as.factor(concrete.new$age.brackets)
+ggplot(concrete.new, aes(age.month)) + geom_bar() + ggtitle("Month Distribution")
+```
+
+Con ese ejemplo podemos ver que la mayoría de las instancias han sido recogidas en el mes de Enero.
+
+Este mismo proceso podemos hacerlo para el dataset *pima*:
+
+```{r}
+base_age <- ggplot(pima, aes(pima$axge))
+base_age <- base_age + geom_histogram(position = "dodge", binwidth = 5)
+base_age <- base_age + ggtitle("Base Age Distribution")
+base_age
+```
+
+En este caso si estamos frente a edades en años. En este caso podemos agrupar por edades al tipo de personas. Vamos a crear las siguientes categorías:
+
+* jóvenes: edad entre 15 y 35
+* adultos: edad entre 36 y 50
+* adultos avanzados: edad entre 51 y 75
+* ancianos: mayores de 76 años
+
+```{r}
+lower_bound <- c(15,36,51,76)
+
+age.category <- c(1,2,3,4)
+age.brackets <- c("15-35", "36-50", "51-75", "76+")
+age.table <- data.frame(age.category, age.brackets)
+
+pima.new <- join(cbind(pima, age.category = findInterval(pima$axge, lower_bound)), 
+                 age.table, by = "age.category")
+
+pima.new$age.brackets <- as.factor(pima.new$age.brackets)
+ggplot(pima.new, aes(age.category)) + geom_bar() + ggtitle("Age category Distribution")
+```
+
+Como podemos ver, la mayoría de las personas son jóvenes (grupo 1).
+
+Una vez hemos calculado estas variables, vamos a borrar las antiguas de los datasets:
+
+```{r}
+names(concrete.new)
+names(pima.new)
+
+concrete.new$age <- NULL
+concrete.new$age.brackets <- NULL
+
+pima.new$axge <- NULL
+pima.new$age.brackets <- NULL
+
+names(concrete.new)
+names(pima.new)
+```
+
+Finalmente, reordenamos las columnas para tener el outcome al final:
+
+```{r}
+concrete.new <- concrete.new[,c(1:7, 9, 8)]
+names(concrete.new)
+pima.new <- pima.new[,c(1:7, 9, 8)]
+names(pima.new)
+```
+
+Para decidir si merece la pena usar el nuevo conjunto o no, vamos a probar un par de modelos para ver con cual obtenemos mejores resultados:
+
+```{r}
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=10)
+
+set.seed(1)
+concrete.modelo <- train(outcome ~ ., data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+concrete.new.modelo <- train(outcome ~ ., data = concrete.new, method = "lm", 
+                             trControl = ctrl)
+
+set.seed(1)
+pima.modelo <- train(outcome ~ ., data = pima, method = "knn", 
+                     preProcess = c("center", "scale"), trControl = ctrl)
+
+set.seed(1)
+pima.new.modelo <- train(outcome ~ ., data = pima.new, method = "knn", 
+                         preProcess = c("center", "scale"), trControl = ctrl)
+```
+
+Comparemos los resultados de *concrete*:
+
+```{r}
+concrete.modelo$results$RMSE
+concrete.new.modelo$results$RMSE
+concrete.modelo$results$Rsquared
+concrete.new.modelo$results$Rsquared
+```
+
+Como podemos ver, obtenemos un valor menor y, por lo tanto mejor, de RMSE para el conjunto de datos original y un valor mayor y, por lo tanto mejor, para Rsqueared en el conjunto de datos original.
+
+Si comparamos la tasa de acerito (el valor accuracy) para los modelos generados para *pima* obtenemos lo siguiente:
+
+```{r}
+pima.modelo$results$Accuracy
+pima.new.modelo$results$Accuracy
+```
+
+Como podemos ver, obtenemos unos valores similares, pero ligeramente superiores para el conjunto de datos original.
+
+Por lo tanto, para los problemas de clasificación y regresión voy a usar los conjuntos de datos originales.
+
+# Regresión
+
+**Aclaración:** Para los modelos generados mediante regresión lineal no vamos a aplicar un proceso de centrado y escalado. Regresión lineal trabaja con relaciones proporcionales entre los datos, por eso no es necesario centrarlos y/o escalarlos.
+
+**Aclaración 2:** Para todos modelos se va a usar *cross-validation*, haciendo 10 particiones y repitiendo el proceso de validación cruzada 5 veces. Para ello, usaremos el siguiente objeto, el cual pasaremos a los métodos *train* usados para generar nuestros modelos:
+
+```{r}
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=10)
+```
+
+---
+
+En este apartado el estudiante debe utilizar el dataset$_R$ (*concrete* en mi caso) asignado para realizar los siguientes apartados:
+
+### Apartado R1
+
+Utilizar el algoritmo de regresión lineal simple sobre cada regresor (variable de entrada) para obtener los modelos correspondientes. Si el dataset$_R$ asignado incluye más de 5 regresores, seleccione de manera justificada los 5 que considere más relevantes. Una vez obtenidos los modelos, elegir el que considere más adecuado para su conjunto de datos según las medidas de calidad conocidas.
+
+---
+
+Para resolver este apartado tenemos que ver si debemos seleccionar cinco variables o no. Para ello, consultamos el número de variables que tenemos:
+
+```{r}
+ncol(concrete)
+```
+
+Tenemos ocho variables (más la clase), así que vamos a elegir las cinco más relevantes. Para ello, nos vamos a remitir a las cinco variables que tengán una mayor correlación pero, ¿con respecto a qué? Podemos usar dos vertientes posibles:
+
+* Correlación entre variables: de esta manera podemos encontrar que variables son más propensas a crear buenas interacciones entre ellas.
+* Correlación con respecto a la variable de salida: de esta manera podemos encontrar las variables más relevantes para obtener un buen valor en la variable de salida.
+
+Vamos con la primera opción:
+
+```{r}
+get_mejores_variables <- function(data){
+  correlations <- cor(data[, setdiff(names(data), 'outcome')])
+  # Ponemos el triangulo inferior a cero para no contemplar 
+  # la pareja X1-X2 y la pareja X2-X1, sino solo una de ellas,
+  # ya que las variables involucradas son las mismas
+  # Incluimos la diagonal para no contemplar una variable consigo
+  # misma
+  correlations[lower.tri(correlations, diag = TRUE)] <- 0
+  # Obtenemos los nombres de las variables
+  variables <- colnames(correlations)
+  # Para cada variable, calculamos el índice de la variable con mayor 
+  # correlación. Usamos el valor absoluto ya que la correlación puede 
+  # ser positiva o negativa, pero en ambos casos queremos la más alejada 
+  # de 0 (valor lo mayor porsible si usamos valor absoluto)
+  mayor.correlacion <- apply(abs(correlations), 1, which.max)
+  # Creamos una lista donde cada elemento es un array con la variable 
+  # correspondiente y la variable con la que tiene mayor correlación
+  pares.variables <- Map(c, variables, variables[mayor.correlacion])
+  
+  # Obtenemos las correlaciones de cada par de variables
+  get.correlations <- function(x) abs(correlations[x[1], x[2]])
+  correlacion.mayor = lapply(pares.variables, get.correlations)
+  # Las ordenamos y nos quedamos los índices de las que tienen una 
+  # mayor correlación
+  indices.cinco.correlacion.mayor <- order(unlist(correlacion.mayor), 
+                                           decreasing = TRUE)
+  # Cogemos los mejores cinco pares variables
+  mejores.pares <- pares.variables[indices.cinco.correlacion.mayor]
+  # Nos quedamos con los valores únicos de dichas variables
+  mejores.variables <- unique(unlist(mejores.pares))[1:5]
+  list(mejores.variables = mejores.variables, mejores.pares = mejores.pares[1:5])
+}
+
+concrete.mejores.variables <- get_mejores_variables(concrete)$mejores.variables
+concrete.mejores.variables
+```
+
+Si vemos el gráfico de correlaciones que hemos pintado en la primera parte de este trabajo, podemos ver que los valores mayores de correlación los obtenemos con las variables que hemos obtenido con el trozo de código anterior. 
+
+Probemos ahora la segunda vertienete: 
+
+```{r}
+get_mejores_variables_outcome <- function(data) {
+  all.correlations <- cor(data)
+  outcome.correlations <- as.data.frame(all.correlations[,9])
+  names(outcome.correlations) <- "outcome"
+  outcome.correlations[9,] <- 0
+  outcome.correlations <- abs(outcome.correlations)
+  order <- order(outcome.correlations$outcome, decreasing = TRUE)
+  mejores.outcome <- rownames(outcome.correlations)[order][1:5]
+  mejores.outcome
+}
+
+concrete.mejores.outcome <- get_mejores_variables_outcome(concrete)
+concrete.mejores.outcome
+```
+
+Cómo podemos ver, hay variables que coinciden con las del primer grupo de variables y otras que no. Según la situción en la que estemos usaremos un grupo, el otro o ambos. Vamos a calcular los modelos para las cinco variables con mayor correlación con respecto a la salida:
+
+```{r}
+set.seed(1)
+cement.modelo <- train(outcome ~ cement, data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+super.modelo <- train(outcome ~ super, data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+age.modelo <- train(outcome ~ age, data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+water.modelo <- train(outcome ~ water, data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+fine.modelo <- train(outcome ~ fine, data = concrete, method = "lm", trControl = ctrl)
+```
+
+Para comparar los modelos vamos a usar el calor de RSquered (el cual nos interesa que sea lo mayor posible) y el valor de RMSE, que nos interesa que sea lo menor posible:
+
+```{r}
+nombre.modelos <- c("cement.modelo", "super.modelo", "age.modelo", 
+                    "water.modelo", "fine.modelo")
+
+r.squared.modelos <- c(cement.modelo$results$Rsquared, super.modelo$results$Rsquared, 
+                       age.modelo$results$Rsquared, water.modelo$results$Rsquared,
+                       fine.modelo$results$Rsquared)
+
+rmse.modelos <- c(cement.modelo$results$RMSE, super.modelo$results$RMSE, 
+                  age.modelo$results$RMSE, water.modelo$results$RMSE,
+                  fine.modelo$results$RMSE)
+```
+
+Vamos a pintar algunos gráficos para ver los resultados de una forma más clara:
+
+```{r}
+d <- data.frame(x = nombre.modelos, y = r.squared.modelos)
+ggplot(d, aes(x, y)) + geom_point() + xlab("Modelo") + 
+  ylab("RSquared") + ggtitle("Valores de RSquared")
+
+d <- data.frame(x = nombre.modelos, y = rmse.modelos)
+ggplot(d, aes(x, y)) + geom_point() + xlab("Modelo") + 
+  ylab("RMSE") + ggtitle("Valores de RMSE")
+```
+
+Como podemos ver, los mejores resultados los obtenemos con *cement.modelo*, el cual usa sólo la variable *cement* para estimar el modelo. Esto se puede corroborar también viendo que *cemet* es la variable que tiene una mayor correlación con la variable de salida.
+
+### Apartado R2
+
+Utilizar el algoritmo para regresión lineal múltiple. Justificar adecuadamente si el modelo obtenido aporta mejoras respecto al modelo elegido en el paso anterior (en este apartado tenga también en cuenta la consideración de posibles interacciones y no linealidad).
+
+---
+
+El primero modelo que se nos ocurre obtener es un modelo en el que usemos todas las variables:
+
+```{r}
+set.seed(1)
+lm.all <- train(outcome ~ ., data = concrete, method = "lm", trControl = ctrl)
+lm.all$results[c(2,3)]
+```
+
+Otra prueba que podemos hacer es obtener un modelo con las cinco mejores variables que hemos obtenido antes:
+
+```{r}
+set.seed(1)
+lm.cinco <- train(outcome ~ ., 
+                  data = concrete[c(concrete.mejores.outcome, "outcome")], 
+                  method = "lm", trControl = ctrl)
+lm.cinco$results[c(2,3)]
+```
+
+Otra prueba es ir quitando variables una a una para ver que resultados obtenemos. Para ello vamos a seguir el siguiente procedimiento:
+
+* Obtenemos un modelo *m$_i$* sin la variable *i*. De esta manera, como tenemos 8 variables de partida, obtendremos 8 modelos con todas las variables excepto una distinta en cada una de ellos. 
+* Obtenemos el RMSE y el Rsquared de cada modelo y nos quedamos con el mejor modelo. Buscamos un RMSE lo más bajo posible y un Rsquared lo más alto posible.
+* Eliminamos de forma definitiva la variable del mejor modelo.
+* Repetimos iterativamente hasta quedarnos con una única variable.
+
+Primero vamos a generar los 8 modelos con todas las variables:
+
+```{r}
+set.seed(1)
+lm.except.1 <- train(outcome ~ ., data = concrete[names(concrete)[-1]], 
+                     method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.2 <- train(outcome ~ ., data = concrete[names(concrete)[-2]], 
+                     method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.3 <- train(outcome ~ ., data = concrete[names(concrete)[-3]], 
+                     method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.4 <- train(outcome ~ ., data = concrete[names(concrete)[-4]], 
+                     method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.5 <- train(outcome ~ ., data = concrete[names(concrete)[-5]], 
+                     method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.6 <- train(outcome ~ ., data = concrete[names(concrete)[-6]], 
+                     method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7 <- train(outcome ~ ., data = concrete[names(concrete)[-7]], 
+                     method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.8 <- train(outcome ~ ., data = concrete[names(concrete)[-8]], 
+                     method = "lm", trControl = ctrl)
+
+results8 <- rbind(lm.except.1 = lm.except.1$results[2:3],
+                  lm.except.2 = lm.except.2$results[2:3],
+                  lm.except.3 = lm.except.3$results[2:3],
+                  lm.except.4 = lm.except.4$results[2:3],
+                  lm.except.5 = lm.except.5$results[2:3],
+                  lm.except.6 = lm.except.6$results[2:3],
+                  lm.except.7 = lm.except.7$results[2:3],
+                  lm.except.8 = lm.except.8$results[2:3])
+
+results8
+results8[unique(c(which.min(results8$RMSE), 
+                  which.max(results8$Rsquared))),]
+```
+
+En este caso los mejores resultados los obtenemos con el modelo *lm.except.7*, el cual no usa las variables *fine*. Vamos a quitar una variable más:
+
+```{r}
+set.seed(1)
+lm.except.7.1 <- train(outcome ~ ., data = concrete[names(concrete)[-c(1,7)]], 
+                       method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.2 <- train(outcome ~ ., data = concrete[names(concrete)[-c(2,7)]], 
+                       method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.3 <- train(outcome ~ ., data = concrete[names(concrete)[-c(3,7)]], 
+                       method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.4 <- train(outcome ~ ., data = concrete[names(concrete)[-c(4,7)]], 
+                       method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.5 <- train(outcome ~ ., data = concrete[names(concrete)[-c(5,7)]], 
+                       method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6 <- train(outcome ~ ., data = concrete[names(concrete)[-c(6,7)]], 
+                       method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.8 <- train(outcome ~ ., data = concrete[names(concrete)[-c(8,7)]], 
+                       method = "lm", trControl = ctrl)
+
+results7 <- rbind(lm.except.7.1=lm.except.7.1$results[2:3],
+                  lm.except.7.2=lm.except.7.2$results[2:3],
+                  lm.except.7.3=lm.except.7.3$results[2:3],
+                  lm.except.7.4=lm.except.7.4$results[2:3],
+                  lm.except.7.5=lm.except.7.5$results[2:3],
+                  lm.except.7.6=lm.except.7.6$results[2:3],
+                  lm.except.7.8=lm.except.7.8$results[2:3])
+
+results7
+results7[unique(c(which.min(results7$RMSE), 
+                  which.max(results7$Rsquared))),]
+```
+
+En este caso los mejores resultados los obtenemos con el modelo *lm.except.7.6*, el cual no usa las variables *fine* y *coarse*. Vamos a quitar una variable más:
+
+```{r}
+set.seed(1)
+lm.except.7.6.1 <- train(outcome ~ ., data = concrete[names(concrete)[-c(1,6,7)]], 
+                         method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.2 <- train(outcome ~ ., data = concrete[names(concrete)[-c(2,6,7)]], 
+                         method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.3 <- train(outcome ~ ., data = concrete[names(concrete)[-c(3,6,7)]], 
+                         method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.4 <- train(outcome ~ ., data = concrete[names(concrete)[-c(4,6,7)]], 
+                         method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5 <- train(outcome ~ ., data = concrete[names(concrete)[-c(5,6,7)]], 
+                         method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.8 <- train(outcome ~ ., data = concrete[names(concrete)[-c(8,6,7)]], 
+                         method = "lm", trControl = ctrl)
+
+results6 <- rbind(lm.except.7.6.1=lm.except.7.6.1$results[2:3],
+                  lm.except.7.6.2=lm.except.7.6.2$results[2:3],
+                  lm.except.7.6.3=lm.except.7.6.3$results[2:3],
+                  lm.except.7.6.4=lm.except.7.6.4$results[2:3],
+                  lm.except.7.6.5=lm.except.7.6.5$results[2:3],
+                  lm.except.7.6.8=lm.except.7.6.8$results[2:3])
+
+results6
+results6[unique(c(which.min(results6$RMSE), 
+                  which.max(results6$Rsquared))),]
+```
+
+En este caso los mejores resultados los obtenemos con el modelo *lm.except.7.6.5*, el cual no usa las variables *super*, *fine* y *coarse*. Vamos a quitar una variable más:
+
+```{r}
+set.seed(1)
+lm.except.7.6.5.1 <- train(outcome ~ ., data = concrete[names(concrete)[-c(1,5,6,7)]], 
+                           method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.2 <- train(outcome ~ ., data = concrete[names(concrete)[-c(2,5,6,7)]], 
+                           method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.3 <- train(outcome ~ ., data = concrete[names(concrete)[-c(3,5,6,7)]], 
+                           method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.4 <- train(outcome ~ ., data = concrete[names(concrete)[-c(4,5,6,7)]], 
+                           method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.8 <- train(outcome ~ ., data = concrete[names(concrete)[-c(8,5,6,7)]], 
+                           method = "lm", trControl = ctrl)
+
+results5 <- rbind(lm.except.7.6.5.1=lm.except.7.6.5.1$results[2:3],
+                  lm.except.7.6.5.2=lm.except.7.6.5.2$results[2:3],
+                  lm.except.7.6.5.3=lm.except.7.6.5.3$results[2:3],
+                  lm.except.7.6.5.4=lm.except.7.6.5.4$results[2:3],
+                  lm.except.7.6.5.8=lm.except.7.6.5.8$results[2:3])
+
+results5
+results5[unique(c(which.min(results5$RMSE), 
+                  which.max(results5$Rsquared))),]
+```
+
+En este caso los mejores resultados los obtenemos con el modelo *lm.except.7.6.5.3*, el cual no usa las variables *flyash*, *super*, *fine* y *coarse*. Vamos a quitar una variable más:
+
+```{r}
+set.seed(1)
+lm.except.7.6.5.3.1 <- train(outcome ~ ., data = concrete[names(concrete)[-c(1,3,5,6,7)]], 
+                             method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.3.2 <- train(outcome ~ ., data = concrete[names(concrete)[-c(2,3,5,6,7)]], 
+                             method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.3.4 <- train(outcome ~ ., data = concrete[names(concrete)[-c(4,3,5,6,7)]], 
+                             method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.3.8 <- train(outcome ~ ., data = concrete[names(concrete)[-c(8,3,5,6,7)]], 
+                             method = "lm", trControl = ctrl)
+
+results4 <- rbind(lm.except.7.6.5.3.1=lm.except.7.6.5.3.1$results[2:3],
+                  lm.except.7.6.5.3.2=lm.except.7.6.5.3.2$results[2:3],
+                  lm.except.7.6.5.3.4=lm.except.7.6.5.3.4$results[2:3],
+                  lm.except.7.6.5.3.8=lm.except.7.6.5.3.8$results[2:3])
+
+results4
+results4[unique(c(which.min(results4$RMSE), 
+                  which.max(results4$Rsquared))),]
+```
+
+En este caso los mejores resultados los obtenemos con el modelo *lm.except.7.6.5.3.2*, el cual no usa las variables *blast*, *flyash*, *super*, *fine* y *coarse*. Vamos a quitar una variable más:
+
+```{r}
+set.seed(1)
+lm.except.7.6.5.3.2.1 <- train(outcome ~ ., 
+                               data = concrete[names(concrete)[-c(1,2,3,5,6,7)]], 
+                               method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.3.2.4 <- train(outcome ~ .,
+                               data = concrete[names(concrete)[-c(4,2,3,5,6,7)]], 
+                               method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.3.2.8 <- train(outcome ~ ., 
+                               data = concrete[names(concrete)[-c(8,2,3,5,6,7)]], 
+                               method = "lm", trControl = ctrl)
+
+results3 <- rbind(lm.except.7.6.5.3.2.1=lm.except.7.6.5.3.2.1$results[2:3],
+                  lm.except.7.6.5.3.2.4=lm.except.7.6.5.3.2.4$results[2:3],
+                  lm.except.7.6.5.3.2.8=lm.except.7.6.5.3.2.8$results[2:3])
+
+results3
+results3[unique(c(which.min(results3$RMSE), 
+                  which.max(results3$Rsquared))),]
+```
+
+En este caso los mejores resultados los obtenemos con el modelo *lm.except.7.6.5.3.2.4*, el cual no usa las variables *water*, *blast*, *flyash*, *super*, *fine* y *coarse*. Vamos a quitar una variable más:
+
+```{r}
+set.seed(1)
+lm.except.7.6.5.3.2.4.1 <- train(outcome ~ ., 
+                                 data = concrete[names(concrete)[-c(1,4,2,3,5,6,7)]], 
+                                 method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.except.7.6.5.3.2.4.8 <- train(outcome ~ ., 
+                                 data = concrete[names(concrete)[-c(8,4,2,3,5,6,7)]], 
+                                 method = "lm", trControl = ctrl)
+
+results2 <- rbind(lm.except.7.6.5.3.2.4.1=lm.except.7.6.5.3.2.4.1$results[2:3],
+                  lm.except.7.6.5.3.2.4.8=lm.except.7.6.5.3.2.4.8$results[2:3])
+
+results2
+results2[unique(c(which.min(results2$RMSE), 
+                  which.max(results2$Rsquared))),]
+```
+
+En este caso los mejores resultados los obtenemos con el modelo *lm.except.7.6.5.3.2.8*, el cual no usa las variables *age*, *water*, *blast*, *flyash*, *super*, *fine* y *coarse*.
+
+Otra cosa que podemos probar es a crear un modelo para cada variable:
+
+```{r}
+set.seed(1)
+lm.1 <- train(outcome ~ ., data = concrete[names(concrete)[c(1,9)]], 
+              method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.2 <- train(outcome ~ ., data = concrete[names(concrete)[c(2,9)]], 
+              method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.3 <- train(outcome ~ ., data = concrete[names(concrete)[c(3,9)]], 
+              method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.4 <- train(outcome ~ ., data = concrete[names(concrete)[c(4,9)]], 
+              method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.5 <- train(outcome ~ ., data = concrete[names(concrete)[c(5,9)]], 
+              method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.6 <- train(outcome ~ ., data = concrete[names(concrete)[c(6,9)]], 
+              method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.7 <- train(outcome ~ ., data = concrete[names(concrete)[c(7,9)]], 
+              method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.8 <- train(outcome ~ ., data = concrete[names(concrete)[c(8,9)]], 
+              method = "lm", trControl = ctrl)
+
+results.only.one.8 <- rbind(lm.1 = lm.1$results[2:3],
+                            lm.2 = lm.2$results[2:3],
+                            lm.3 = lm.3$results[2:3],
+                            lm.4 = lm.4$results[2:3],
+                            lm.5 = lm.5$results[2:3],
+                            lm.6 = lm.6$results[2:3],
+                            lm.7 = lm.7$results[2:3],
+                            lm.8 = lm.8$results[2:3])
+results.only.one.8
+results.only.one.8[unique(c(which.min(results.only.one.8$RMSE), 
+                            which.max(results.only.one.8$Rsquared))),]
+```
+
+En este caso, el modelo que mejor se comporta es *lm.1*, el cual sólo usa la variable *cement*. 
+
+Otra prueba que podemos hacer es probar combinaciones no lineales de las variables. Las combinaciones no lineales que podemos probar son las combinaciones de las variables que tienen una alta correlación. Dichas parejas de variables son:
+
+```{r}
+concrete.mejores.pares <- get_mejores_variables(concrete)$mejores.pares
+concrete.mejores.pares
+```
+
+Vamos a crear un modelo para cada par de variables con un combinación no líneal usando la multiplicación:
+
+```{r}
+set.seed(1)
+lm.water.super <- train(outcome ~ I(water*super), 
+                        data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.cement.flyash <- train(outcome ~ I(cement*flyash), 
+                          data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.flyash.super <- train(outcome ~ I(flyash*super), 
+                         data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.blast.flyash <- train(outcome ~ I(blast*flyash), 
+                         data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1)
+lm.super.coarse <- train(outcome ~ I(super*coarse), 
+                         data = concrete, method = "lm", trControl = ctrl)
+
+results.pairs <- rbind(lm.water.super = lm.water.super$results[2:3],
+                       lm.cement.flyash = lm.cement.flyash$results[2:3],
+                       lm.flyash.super = lm.flyash.super$results[2:3],
+                       lm.blast.flyash = lm.blast.flyash$results[2:3],
+                       lm.super.coarse = lm.super.coarse$results[2:3])
+
+results.pairs
+results.pairs[unique(c(which.min(results.pairs$RMSE), 
+                       which.max(results.pairs$Rsquared))),]
+```
+
+Podemos probar a multiplicar las cinco mejores variables y a elevarlas al cuadrado:
+
+```{r}
+set.seed(1)
+lm.cinco.mul <- train(outcome ~ water*super*flyash*cement*blast, 
+                      data = concrete, method = "lm", trControl = ctrl)
+lm.cinco.mul$results[c(2,3)]
+
+lm.cinco.pow <- train(outcome ~ I(water^2)+I(super^2)+I(flyash^2)+I(cement^2)+I(blast^2), 
+                      data = concrete, method = "lm", trControl = ctrl)
+
+lm.cinco.pow$results[c(2,3)]
+```
+
+A continuación voy a probar diferentes combinaciones no lineales de las variables. Dichas combinaciones son las que mejores resultados me han dado tras las pruebas. Para guiar un poco la búsqueda he creado modelos que juegan a incluir o no las cinco variables que más correlación tienen con respecto a la salida y las cinco variables que más correlación tienen entre ellas. He hecho esto porque, a pesar de haber seleccionado las cinco variables con más correlación con respecto a la variable de salida, puede darse el caso que añadiendo alguna combinación lineal (o no lineal) de variables que estás muy correladas puede mejorar bastante el modelo.
+
+```{r}
+set.seed(1);
+lm.try.01 <- train(outcome~cement*blast*flyash*water*super*age+I(age^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.02 <- train(outcome~cement*blast*flyash*water*age+I(age^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.03 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(cement^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.04 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.05 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2)+
+                     I(cement^2), data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.06 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2)+
+                     I(cement^2)+I(blast^2), data = concrete, method = "lm", 
+                   trControl = ctrl)
+
+set.seed(1);
+lm.try.07 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2)+
+                     I(cement^2)+I(blast^2)+I(flyash^2), data = concrete, 
+                   method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.08 <- train(outcome~cement+blast+flyash+water+super+age+I(age^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.09 <- train(outcome~cement+blast+flyash+water+age+I(age^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.10 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(cement^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.11 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(water^2), 
+                   data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.12 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(water^2)+
+                     I(cement^2), data = concrete, method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.13 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(water^2)+
+                     I(cement^2)+I(blast^2), data = concrete, 
+                   method = "lm", trControl = ctrl)
+
+set.seed(1);
+lm.try.14 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(water^2)+
+                     I(cement^2)+I(blast^2)+I(flyash^2), data = concrete, 
+                   method = "lm", trControl = ctrl)
+
+results.try <- rbind(lm.try.01 = lm.try.01$results[2:3],
+                     lm.try.02 = lm.try.02$results[2:3],
+                     lm.try.03 = lm.try.03$results[2:3],
+                     lm.try.04 = lm.try.04$results[2:3],
+                     lm.try.05 = lm.try.05$results[2:3],
+                     lm.try.06 = lm.try.06$results[2:3],
+                     lm.try.07 = lm.try.07$results[2:3],
+                     lm.try.08 = lm.try.08$results[2:3],
+                     lm.try.09 = lm.try.09$results[2:3],
+                     lm.try.10 = lm.try.10$results[2:3],
+                     lm.try.11 = lm.try.11$results[2:3],
+                     lm.try.12 = lm.try.12$results[2:3],
+                     lm.try.13 = lm.try.13$results[2:3],
+                     lm.try.14 = lm.try.14$results[2:3])
+
+results.try
+results.try[unique(c(which.min(results.try$RMSE), 
+                     which.max(results.try$Rsquared))),]
+```
+
+Como podemos ver, los resultados son bastante buenos. Los primeros 7 modelos combinan las variables mediante la multiplicación y los 7 últimos mediante la suma y ambos proporcionan resultados similares. Si he comprobado con añadir una variable al cuadrado mediante la multiplicación no da buenos resultados.
+
+```{r}
+lm.results <- rbind(cement.modelo = cement.modelo$results[2:3],
+                    super.modelo = super.modelo$results[2:3],
+                    age.modelo = age.modelo$results[2:3],
+                    water.modelo = water.modelo$results[2:3],
+                    fine.modelo = fine.modelo$results[2:3],
+                    lm.all = lm.all$results[2:3],
+                    lm.cinco = lm.cinco$results[2:3],
+                    lm.except.1 = lm.except.1$results[2:3],
+                    lm.except.2 = lm.except.2$results[2:3],
+                    lm.except.3 = lm.except.3$results[2:3],
+                    lm.except.4 = lm.except.4$results[2:3],
+                    lm.except.5 = lm.except.5$results[2:3],
+                    lm.except.6 = lm.except.6$results[2:3],
+                    lm.except.7 = lm.except.7$results[2:3],
+                    lm.except.8 = lm.except.8$results[2:3],
+                    lm.except.7.1 = lm.except.7.1$results[2:3],
+                    lm.except.7.2 = lm.except.7.2$results[2:3],
+                    lm.except.7.3 = lm.except.7.3$results[2:3],
+                    lm.except.7.4 = lm.except.7.4$results[2:3],
+                    lm.except.7.5 = lm.except.7.5$results[2:3],
+                    lm.except.7.6 = lm.except.7.6$results[2:3],
+                    lm.except.7.8 = lm.except.7.8$results[2:3],
+                    lm.except.7.6.1 = lm.except.7.6.1$results[2:3],
+                    lm.except.7.6.2 = lm.except.7.6.2$results[2:3],
+                    lm.except.7.6.3 = lm.except.7.6.3$results[2:3],
+                    lm.except.7.6.4 = lm.except.7.6.4$results[2:3],
+                    lm.except.7.6.5 = lm.except.7.6.5$results[2:3],
+                    lm.except.7.6.8 = lm.except.7.6.8$results[2:3],
+                    lm.except.7.6.5.1 = lm.except.7.6.5.1$results[2:3],
+                    lm.except.7.6.5.2 = lm.except.7.6.5.2$results[2:3],
+                    lm.except.7.6.5.3 = lm.except.7.6.5.3$results[2:3],
+                    lm.except.7.6.5.4 = lm.except.7.6.5.4$results[2:3],
+                    lm.except.7.6.5.8 = lm.except.7.6.5.8$results[2:3],
+                    lm.except.7.6.5.3.1 = lm.except.7.6.5.3.1$results[2:3],
+                    lm.except.7.6.5.3.2 = lm.except.7.6.5.3.2$results[2:3],
+                    lm.except.7.6.5.3.4 = lm.except.7.6.5.3.4$results[2:3],
+                    lm.except.7.6.5.3.8 = lm.except.7.6.5.3.8$results[2:3],
+                    lm.except.7.6.5.3.2.1 = lm.except.7.6.5.3.2.1$results[2:3],
+                    lm.except.7.6.5.3.2.4 = lm.except.7.6.5.3.2.4$results[2:3],
+                    lm.except.7.6.5.3.2.8 = lm.except.7.6.5.3.2.8$results[2:3],
+                    lm.except.7.6.5.3.2.4.1 = lm.except.7.6.5.3.2.4.1$results[2:3],
+                    lm.except.7.6.5.3.2.4.8 = lm.except.7.6.5.3.2.4.8$results[2:3],
+                    lm.1 = lm.1$results[2:3], lm.2 = lm.2$results[2:3], 
+                    lm.3 = lm.3$results[2:3], lm.4 = lm.4$results[2:3],
+                    lm.5 = lm.5$results[2:3], lm.6 = lm.6$results[2:3],
+                    lm.7 = lm.7$results[2:3], lm.8 = lm.8$results[2:3],
+                    lm.water.super = lm.water.super$results[2:3],
+                    lm.cement.flyash = lm.cement.flyash$results[2:3],
+                    lm.flyash.super = lm.flyash.super$results[2:3],
+                    lm.blast.flyash = lm.blast.flyash$results[2:3],
+                    lm.super.coarse = lm.super.coarse$results[2:3],
+                    lm.cinco.mul = lm.cinco.mul$results[2:3],
+                    lm.cinco.pow = lm.cinco.pow$results[2:3],
+                    lm.try.01 = lm.try.01$results[2:3],
+                    lm.try.02 = lm.try.02$results[2:3],
+                    lm.try.03 = lm.try.03$results[2:3], 
+                    lm.try.04 = lm.try.04$results[2:3],
+                    lm.try.05 = lm.try.05$results[2:3], 
+                    lm.try.06 = lm.try.06$results[2:3],
+                    lm.try.07 = lm.try.07$results[2:3], 
+                    lm.try.08 = lm.try.08$results[2:3],
+                    lm.try.09 = lm.try.09$results[2:3], 
+                    lm.try.10 = lm.try.10$results[2:3],
+                    lm.try.11 = lm.try.11$results[2:3], 
+                    lm.try.12 = lm.try.12$results[2:3],
+                    lm.try.13 = lm.try.13$results[2:3], 
+                    lm.try.14 = lm.try.14$results[2:3])
+```
+
+Para no abrumar con la cantidad de modelos generados, vamos a mostrar sólo los diez mejores:
+
+```{r}
+lm.mejores.diez <- lm.results[order(lm.results$Rsquared, decreasing = TRUE),][1:10,]
+lm.mejores.diez
+```
+
+Como podemos ver, los mejores resultados son los obtenidos por modelos que aplican combinaciones no lineales. Si comparamos los resultados de los diez mejores con el modelo clásico (el que usa todas las variables) podemos ver la diferencia que hay:
+
+```{r}
+lm.mejores.diez[1,]
+lm.all$results[c(2,3)]
+```
+
+Esto nos lleva a pensar que, en un problema real, debemos investigar bien los datos y encontrar combinaciones de las variables que nos ofrezcan unos mejores resultados que los obtenidos al usar los datos directamente.
+
+Una vez tenemos el mejor hayado, vamos a comprobar la generalidad de dicho modelo. Para ello, usamos la siguiente función:
+
+```{r}
+run_lm_fold <- function(i, x, tt = "test", formula) {
+  file <- paste(x, "-5-", i, "tra.dat", sep="")
+  x_tra <- read.csv(file, comment.char="@")
+  file <- paste(x, "-5-", i, "tst.dat", sep="")
+  x_tst <- read.csv(file, comment.char="@")
+  In <- length(names(x_tra)) - 1
+  names(x_tra)[1:In] <- paste ("RX", 1:In, sep="")
+  names(x_tst)[1:In] <- paste ("RX", 1:In, sep="")
+  names(x_tra)[In+1] <- "RY"
+  names(x_tst)[In+1] <- "RY"
+  if (tt == "train") {
+    test <- x_tra
+  } else {
+    test <- x_tst
+  }
+  fitMulti=lm(formula,x_tra)
+  yprime=predict(fitMulti,test)
+  sqrt(sum(abs(test$RY-yprime)^2)/length(yprime)) ##RMSE
+}
+
+lmRMSE.try.01.train <- mean(sapply(1:5, run_lm_fold, "concrete/concrete", 
+                                   "train", RY~RX1*RX2*RX3*RX4*RX5*RX8+I(RX8^2)))
+lmRMSE.try.01.train
+lmRMSE.try.01.test <- mean(sapply(1:5, run_lm_fold, "concrete/concrete", 
+                                  "test", RY~RX1*RX2*RX3*RX4*RX5*RX8+I(RX8^2)))
+lmRMSE.try.01.test
+```
+
+Como podemos ver, los valoers de RMSE son bastante similares para *train* y para *test*, así que podemos afirmar que no hay sobreaprendizaje. Esto nos indica que el modelo generado es lo suficientemente general como para adaptarse a nuevos datos.
+
+### Apartado R3
+
+Aplicar el algoritmo k-NN para regresión.
+
+---
+
+Al contrario que con regresión lineal, para *k-NN* si debemos realizar un preprocesamiento de los datos. *k-NN* se basa en distancias y, como vimos en la parte de análisis de datos, los rangos de las variables son bastante dispares, así que debemos normalizar para que todas las variables se encuentre en el mismo rango. Es por ello que, en todos los algoritmos de *k-NN*, vamos a añadir el párametro *preProcess = c("center", "scale")* para realizar un centrado y escalado como preprocesamiento.
+
+```{r}
+set.seed(1)
+knnReg.all <- train(outcome ~ ., data = concrete, method = "knn", 
+                    tuneLength = 20, trControl = ctrl, preProcess = c("center", "scale"))
+```
+
+Podemos pintar un gráfico para ver como se comporta el acierto según varía el *k*:
+
+```{r}
+plot(knnReg.all)
+```
+
+Cuando aplicamos *k-NN* para regresión, el resultao obtenido como salida (el outcome) se calcula como la media de los outcomes de los vecinos más cercanos. Por lo tanto, cuantos más vecinos cojamos, más flucturá esa media y, por lo tanto, mayor será el RMSE. Los mejores resultados los obtenemos con un *k* de:
+
+```{r}
+knnReg.all$bestTune$k
+```
+
+Para dicho *k*, el error obtenido es de:
+
+```{r}
+knnReg.all$results[which.min(knnReg.all$results$RMSE),]$RMSE
+```
+
+Y el valor de Rsquared es:
+
+```{r}
+knnReg.all$results[which.max(knnReg.all$results$Rsquared),]$Rsquared
+```
+
+Si dichos resultados los comparamos con los obtenidos usando el mismo modelo (*outcome ~ .*) en regresión, podemos ver que los resultados son bastante mejores:
+
+```{r}
+knnReg.all$results[which.min(knnReg.all$results$RMSE),]$RMSE
+lm.all$results$RMSE
+knnReg.all$results[which.max(knnReg.all$results$Rsquared),]$Rsquared
+lm.all$results$Rsquared
+```
+
+Ahora vamos a aplicar *k-NN* sobre los diez modelos que mejor resultado han dado en el apartado R2:
+
+```{r}
+set.seed(1);
+knnReg.try.01 <- train(outcome~cement*blast*flyash*water*super*age+I(age^2), 
+                       data = concrete, method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.02 <- train(outcome~cement*blast*flyash*water*age+I(age^2), 
+                       data = concrete, method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.03 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(cement^2), 
+                       data = concrete, method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.04 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2), 
+                       data = concrete, method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.05 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2)+
+                       I(cement^2), data = concrete, method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.06 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2)+
+                       I(cement^2)+I(blast^2), data = concrete, method = "knn", 
+                       trControl = ctrl, preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.07 <- train(outcome~cement*blast*flyash*water*age+I(age^2)+I(water^2)+
+                       I(cement^2)+I(blast^2)+I(flyash^2), data = concrete, 
+                       method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.10 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(cement^2), 
+                       data = concrete, method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.13 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(water^2)+
+                       I(cement^2)+I(blast^2), data = concrete, 
+                       method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+set.seed(1);
+knnReg.try.14 <- train(outcome~cement+blast+flyash+water+age+I(age^2)+I(water^2)+
+                       I(cement^2)+I(blast^2)+I(flyash^2), data = concrete, 
+                       method = "knn", trControl = ctrl, 
+                       preProcess = c("center", "scale"))
+
+knnReg.results <- rbind(knnReg.try.01 = 
+                          knnReg.try.01$results[rownames(knnReg.try.01$bestTune),], 
+                        knnReg.try.02 = 
+                          knnReg.try.02$results[rownames(knnReg.try.02$bestTune),], 
+                        knnReg.try.03 = 
+                          knnReg.try.03$results[rownames(knnReg.try.03$bestTune),], 
+                        knnReg.try.04 = 
+                          knnReg.try.04$results[rownames(knnReg.try.04$bestTune),], 
+                        knnReg.try.05 = 
+                          knnReg.try.05$results[rownames(knnReg.try.05$bestTune),], 
+                        knnReg.try.06 = 
+                          knnReg.try.06$results[rownames(knnReg.try.06$bestTune),], 
+                        knnReg.try.07 = 
+                          knnReg.try.07$results[rownames(knnReg.try.07$bestTune),], 
+                        knnReg.try.10 = 
+                          knnReg.try.10$results[rownames(knnReg.try.10$bestTune),], 
+                        knnReg.try.13 = 
+                          knnReg.try.13$results[rownames(knnReg.try.13$bestTune),], 
+                        knnReg.try.14 = 
+                          knnReg.try.14$results[rownames(knnReg.try.14$bestTune),])
+knnReg.results[,2:3]
+```
+
+Ordenemos ahora los resultados:
+
+```{r}
+knnReg.results[,2:3][order(knnReg.results[,2:3]$Rsquared, decreasing = TRUE),]
+```
+
+En este caso, el mejor resultado lo obtenemos con *knnReg.try.05*. Al igual que hemos hecho con con regresión, vamos a comprobar la generalidad de este modelo. Para ello, usaremos la función definida anteriormente:
+
+```{r}
+knnRegRMSE.try.01.train <- mean(sapply(1:5, run_lm_fold, "concrete/concrete", 
+                                       "train", RY~RX1*RX2*RX3*RX4*RX8+I(RX8^2)+I(RX4^2)+I(RX1^2)))
+knnRegRMSE.try.01.train
+knnRegRMSE.try.01.test <- mean(sapply(1:5, run_lm_fold, "concrete/concrete", 
+                                      "test", RY~RX1*RX2*RX3*RX4*RX8+I(RX8^2)+I(RX4^2)+I(RX1^2)))
+knnRegRMSE.try.01.test
+```
+
+Como podemos ver, los valoers de RMSE son bastante similares para *train* y para *test*, así que podemos afirmar que no hay sobreaprendizaje. Esto nos indica que el modelo generado es lo suficientemente general como para adaptarse a nuevos datos.
+
+### Apartado R4
+
+Comparar los resultados de los dos algoritmos de regresión múltiple entre sí, y adicionalmente mediante comparativas múltiples con un tercero (el modelo de regresión M5', cuyos resultados ya están incluidos en las tablas de resultados disponibles).
+
+---
+
+Primero, vamos a juntar todos lo resultados en una única tabla:
+
+```{r}
+lm.final.results <- lm.mejores.diez[order(row.names(lm.mejores.diez)), ]
+knnReg.final.results <- knnReg.results[,2:3][order(row.names(knnReg.results[,2:3])), ]
+
+reg.final.results <- cbind(lm.final.results, knnReg.final.results)[,c(1, 3, 2, 4)]
+rownames(reg.final.results) <- sub("lm.", "", rownames(reg.final.results))
+colnames(reg.final.results) <- c("lm RMSE", "k-NN RMSE", "lm Rsquared", "k-NN Rsquared")
+reg.final.results
+```
+
+Para comparar *k-NN* con regresión múltiple vamos a usar el valor de RMSE. Vamos a aplicar un test Wilcoxon:
+
+```{r}
+tablatst <- reg.final.results[,1:2]
+
+difs <- (tablatst[,1] - tablatst[,2]) / tablatst[,1]
+wilc <- cbind(ifelse(difs<0, abs(difs)+0.1, 0.1), ifelse(difs>0, abs(difs)+0.1, 0.1))
+colnames(wilc) <- c(colnames(tablatst)[1], colnames(tablatst)[2])
+wilc
+
+LMvsKNN1 <- wilcox.test(wilc[,1], wilc[,2], alternative = "two.sided", paired=TRUE)
+LMvsKNN2 <- wilcox.test(wilc[,2], wilc[,1], alternative = "two.sided", paired=TRUE)
+
+c(Rmas = LMvsKNN1$statistic, Rmenos = LMvsKNN2$statistic, pvalue = LMvsKNN1$p.value)
+```
+
+La hipotesis nula de este test es que los algoritmos son iguales. Como podemos ver, el *pvalue* es bastante alto, así que no podemos rechazar la hipotesis nula. Al no podeer rechazar la hipotesis nula, no podemos decir que haya un algoritmo mejor que otro.
+
+En las tranparencias podemos ver una frase que dice: *Nada de consideraciones específicas para cada problema (LM se ejecuta de forma genérica con todas las variables para cada problema – Y ~ .)*, lo cual nos hace pensar que los tests mostrados anteriormente no son válidos, pero, aplicar una fórmula u otra a un modelo sobre el mismo conjunto de datos es equivalente a aplicar la fórmula estandar (*Y ~ .*) a varios conjuntos de datos con las transformaciones indicadas por la fórmula. Por ejemplo, aplicar la fórmula *Y ~ X1 + X2\*X3* a un conjunto de datos es equivalente a aplicar la fórmula *Y ~ .* a un nuevo conjunto de datos con dos variables donde la primera sea *X1* y la segunda esté formada por la multiplicación de *X2* y *X3*. Con esta consideración, los tests que hemos hechos comparan dos algoritmos (*k-NN* y *lm*) para la misma fórmula (*Y ~ .*) pero con conjuntos de datos distintos.
+
+Dado que el test aplicado no revela mucha información, vamos a comparar los dos algoritmos de una forma manual. Vamos a pintar un gráfico comparativo con los resultados obtenidos para los distintos modelos y los dos algoritmos. Primero lo vamos a hacer para el RMSE:
+
+```{r}
+modelo <- rownames(reg.final.results)
+lm.RMSE <- reg.final.results$`lm RMSE`
+knn.RMSE <- reg.final.results$`k-NN RMSE`
+
+cols <- c("lm"="#f04546", "knn"="#008080")
+p <- ggplot()
+p <- p + geom_point(aes(x=modelo, y=lm.RMSE, group = 1, colour="lm"))
+p <- p + geom_point(aes(x=modelo, y=knn.RMSE, group = 1, colour="knn"))
+p <- p + labs(x = "Modelo", y = "RMSE")
+p + scale_colour_manual(name="Algoritmo", values=cols)
+```
+
+Y a continuación para RSquared:
+
+```{r}
+modelo <- rownames(reg.final.results)
+lm.RSquared <- reg.final.results$`lm Rsquared`
+knn.RSquared <- reg.final.results$`k-NN Rsquared`
+
+cols <- c("lm"="#f04546", "knn"="#008080")
+p <- ggplot()
+p <- p + geom_point(aes(x=modelo, y=lm.RSquared, group = 1, colour="lm"))
+p <- p + geom_point(aes(x=modelo, y=knn.RSquared, group = 1, colour="knn"))
+p <- p + labs(x = "Modelo", y = "RSquared")
+p + scale_colour_manual(name="Algoritmo", values=cols)
+```
+
+Como podemos ver, los mejores resultados los obtenemos con *k-NN*, ya que obtiene un RMSE más bajo y un Rsquared más alto. Vamos a ver cuantas veces cada algoritmo es el que mejor resultados obtiene:
+
+```{r}
+mejor_algoritmo <- function(x) names(x[which.max(x)])
+algoritmos <- apply(t(reg.final.results[,3:4]), 2, mejor_algoritmo)
+algoritmos <- sub(" Rsquared", "", algoritmos)
+names(algoritmos) <- NULL
+table(algoritmos)
+```
+
+En 8 ocasiones *k-NN* obtiene mejores resultados que *lm* y *lm* sólo obtiene mejores resultados en 2 ocasiones.
+
+A continuación voy a comparar los resultados de test proporcionados. Para realizar una comparativa múltiple, voy a aplicar el test de Friedman, que permite detectar si hay diferencias significativas en algún par de algoritmos:
+
+```{r}
+test_friedman <- friedman.test(as.matrix(tablatst))
+test_friedman
+```
+
+En este caso, el *pvalue* obtenido es `r test_friedman$p.value`, así que podemos afirmar que existen diferencias entre, al menos, un par de algoritmos. Es por esto que debemos aplicar post-hoc:
+
+```{r}
+tam <- dim(tablatst)
+groups <- rep(1:tam[2], each=tam[1])
+pairwise.wilcox.test(as.matrix(tablatst), groups, p.adjust = "holm", paired = TRUE)
+```
+
+Viendo los resultados obtenidos, podemos destacar que hay diferencia entre los algoritmos *M5* y *k-NN* y *M5* y *lm* (siendo M5 mejor). Sin embrago, los resultados de *k-NN* y *lm* nos indican que no hay diferencias entre ellos.
+
+# Clasificación
+
+En este apartado el estudiante debe utilizar el dataset$_C$ (*pima* en mi caso) asignado para realizar los siguientes apartados:
+
+## Apartado C1
+
+**Aclaración:** Para todos modelos se va a usar *cross-validation*, haciendo 10 particiones y repitiendo el proceso de validación cruzada 5 veces. Para ello, usaremos el siguiente objeto, el cual pasaremos a los métodos *train* usados para generar nuestros modelos:
+
+```{r}
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=10)
+```
+
+---
+
+Utilizar el algoritmo k-NN probando con diferentes valores de k. Elegir el que considere más adecuado para su conjunto de datos.
+
+---
+
+Vamos a aplicar *k-NN* sobre todas las variables del conjunto de datos:
+
+```{r}
+set.seed(1)
+knn.all <- train(outcome ~ ., data = pima, method = "knn", 
+                 tuneLength = 20, trControl = ctrl)
+plot(knn.all)
+```
+
+El mejor valor de k lo obtenemos cuando obtenemos el mejor valor de Accuracy. Podemos calcularlo de la siguiente manera:
+
+```{r}
+knn.all$bestTune$k
+```
+
+Otra prueba que podemos hacer es seleccionar las cinco mejores variables (al igual que hemos hecho en el apartado de regresión) y ver que resultados obtenemos así. Dichas variables son:
+
+```{r}
+pima.mejores.variables <- get_mejores_variables(pima)$mejores.variables
+pima.mejores.variables
+```
+
+Cómo hemos hecho en regresión, podemos obtener también las variables con una mayor correlación con respecto a la variable de salida:
+
+```{r}
+# Este proprocesamiento previo se debe a que cor no acepta datos que no sean numéricos,
+# así que he transformado la clase en 1 o 0 en vez de tested_positive o tested_negative
+pima.outcome.mod <- cbind(pima, ifelse(pima$outcome == "tested_positive", 1, 0))
+pima.outcome.mod$outcome <- NULL
+new.names <- colnames(pima.outcome.mod)
+new.names[9] <- "outcome"
+names(pima.outcome.mod) <- new.names
+
+pima.mejores.outcome <- get_mejores_variables_outcome(pima.outcome.mod)
+pima.mejores.outcome
+```
+
+Vamos a obtener un modelo con dichas variables:
+
+```{r}
+set.seed(1)
+knn.cinco <- train(outcome ~ ., data = pima[c(pima.mejores.outcome, "outcome")], 
+                   method = "knn", tuneLength = 20, trControl = ctrl)
+plot(knn.cinco)
+```
+
+En este caso, el mejor valor de accuracy es `r max(knn.cinco$results$Accuracy)`, tal y como podemos ver a continuación:
+
+```{r}
+max(knn.cinco$results$Accuracy)
+```
+
+Cómo podemos ver, el resultado es peor que el obtenido cuando hemos usado todas las variables, `r max(knn.cinco$results$Accuracy)` frente a `r max(knn.all$results$Accuracy)`, pero no mucho peor. En estos casos podemos plantearnos si estamos dispuestos a obtener un `r 100 * (max(knn.all$results$Accuracy) - max(knn.cinco$results$Accuracy))`% menos de acierto a cambio de usar `r length(knn.all$coefnames)` variables en vez de `r length(knn.cinco$coefnames)`. La diferencia en el porcentaje es diminuta y, a cambio, tenemos una gran reducción del tamaño de los datos al usar sólo las cinco mejores variables.
+
+Al igual que hemos hecho en el apartado de regresión, vamos a probar algunos modelos que combinen las variables para ver si conseguimos mejorar el resultado obtenido. Los modelos los vamos a hacer usando las cinco variables con mayor correlación entre ellas, las cinco variables con mejor correlación con respecto a la salida o combinaciones de ambos grupos:
+
+```{r}
+set.seed(1)
+knn.try.00 <- train(outcome ~ preg*axge*skin*insu*plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.01 <- train(outcome ~ preg*axge*skin*insu, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.02 <- train(outcome ~ preg*axge*skin*plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.03 <- train(outcome ~ preg*axge*insu*plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.04 <- train(outcome ~ preg*skin*insu*plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.05 <- train(outcome ~ axge*skin*insu*plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.06 <- train(outcome ~ preg+axge+skin+insu, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.07 <- train(outcome ~ preg+axge+skin+plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.08 <- train(outcome ~ preg+axge+insu+plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.09 <- train(outcome ~ preg+skin+insu+plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.10 <- train(outcome ~ axge+skin+insu+plas, 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.11 <- train(outcome ~ preg+axge+plas, data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.12 <- train(outcome ~ preg+skin+plas, data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.13 <- train(outcome ~ axge+skin+plas, data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.14 <- train(outcome ~ axge+plas, data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.15 <- train(outcome ~ preg+plas, data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.16 <- train(outcome ~ preg+plas*I(plas^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.17 <- train(outcome ~ preg+plas+I(plas^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.18 <- train(outcome ~ preg+plas+I(preg^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.19 <- train(outcome ~ preg+plas+I(plas^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.20 <- train(outcome ~ preg+plas+I(plas^2)+I(preg^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.21 <- train(outcome ~ preg+plas+I(plas^2)*I(preg^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.22 <- train(outcome ~ I(preg^2)+I(axge^2)+I(insu^2)+I(plas^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.23 <- train(outcome ~ preg*axge*insu*plas+I(insu^2)+I(plas^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.24 <- train(outcome ~ preg+axge+insu+plas+I(preg^2)+I(axge^2)+I(insu^2)+I(plas^2), 
+                    data = pima, method = "knn", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+knn.try.25 <- train(outcome ~ preg+axge+insu+plas+I(insu^2)*I(plas^2), data = pima, 
+                    method = "knn", tuneLength = 20, trControl = ctrl)
+
+knn.results <- rbind(knn.try.00 = knn.try.00$results[rownames(knn.try.00$bestTune),],
+                     knn.try.01 = knn.try.01$results[rownames(knn.try.01$bestTune),],
+                     knn.try.02 = knn.try.02$results[rownames(knn.try.02$bestTune),],
+                     knn.try.03 = knn.try.03$results[rownames(knn.try.03$bestTune),],
+                     knn.try.04 = knn.try.04$results[rownames(knn.try.04$bestTune),],
+                     knn.try.05 = knn.try.05$results[rownames(knn.try.05$bestTune),],
+                     knn.try.06 = knn.try.06$results[rownames(knn.try.06$bestTune),],
+                     knn.try.07 = knn.try.07$results[rownames(knn.try.07$bestTune),],
+                     knn.try.08 = knn.try.08$results[rownames(knn.try.08$bestTune),],
+                     knn.try.09 = knn.try.09$results[rownames(knn.try.09$bestTune),],
+                     knn.try.10 = knn.try.10$results[rownames(knn.try.10$bestTune),],
+                     knn.try.11 = knn.try.11$results[rownames(knn.try.11$bestTune),],
+                     knn.try.12 = knn.try.12$results[rownames(knn.try.12$bestTune),],
+                     knn.try.13 = knn.try.13$results[rownames(knn.try.13$bestTune),],
+                     knn.try.14 = knn.try.14$results[rownames(knn.try.14$bestTune),],
+                     knn.try.15 = knn.try.15$results[rownames(knn.try.15$bestTune),],
+                     knn.try.16 = knn.try.16$results[rownames(knn.try.16$bestTune),],
+                     knn.try.17 = knn.try.17$results[rownames(knn.try.17$bestTune),],
+                     knn.try.18 = knn.try.18$results[rownames(knn.try.18$bestTune),],
+                     knn.try.19 = knn.try.19$results[rownames(knn.try.19$bestTune),],
+                     knn.try.20 = knn.try.20$results[rownames(knn.try.20$bestTune),],
+                     knn.try.21 = knn.try.21$results[rownames(knn.try.21$bestTune),],
+                     knn.try.22 = knn.try.22$results[rownames(knn.try.22$bestTune),],
+                     knn.try.23 = knn.try.23$results[rownames(knn.try.23$bestTune),],
+                     knn.try.24 = knn.try.24$results[rownames(knn.try.24$bestTune),],
+                     knn.try.25 = knn.try.25$results[rownames(knn.try.25$bestTune),])
+
+knn.results[,2:3]
+```
+
+Como podemos ver, los resultados son bastante buenos, algunos mejores y otros peores. Vamos a juntar todos los resultados que tenemos y vamos a obtener los diez mejores resultados:
+
+```{r}
+knn.final.results <- rbind(knn.results, 
+                          knn.cinco = knn.cinco$results[rownames(knn.cinco$bestTune),],
+                          knn.all = knn.all$results[rownames(knn.all$bestTune),])
+
+knn.final.results <- knn.final.results[order(knn.final.results$Accuracy, 
+                                             decreasing = TRUE),][1:10,]
+
+knn.final.results
+```
+
+El mejor resultado lo hemos obtenido con el modelo *knn.cinco*. Este modelo usa las cinco variables que tienen una mayor correlación con la variable de salida, lo cual nos indica que, efectivamente, las variables con una correlación alta son las más interesantes a la hora de clasificar.
+
+### Apartado C2
+
+Utilizar el algoritmo LDA para clasificar.
+
+---
+
+Al igual que hemos hecho en el apartado de regresión, vamos a aplicar el algoritmo *lda* usando las fórmulas de los diez mejores modelos obtenidos en el apartado anterior:
+
+```{r}
+set.seed(1)
+lda.cinco <- train(outcome ~ ., data = pima[c(pima.mejores.outcome, "outcome")], 
+                   method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.all <- train(outcome ~ ., data = pima, method = "lda", 
+                 tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.07 <- train(outcome ~ preg+axge+skin+plas, 
+                    data = pima, method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.11 <- train(outcome ~ preg+axge+plas, data = pima, 
+                    method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.12 <- train(outcome ~ preg+skin+plas, data = pima, 
+                    method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.13 <- train(outcome ~ axge+skin+plas, data = pima, 
+                    method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.14 <- train(outcome ~ axge+plas, data = pima, 
+                    method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.15 <- train(outcome ~ preg+plas, data = pima, 
+                    method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.17 <- train(outcome ~ preg+plas+I(plas^2), data = pima, 
+                    method = "lda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+lda.try.18 <- train(outcome ~ preg+plas+I(preg^2), data = pima, 
+                    method = "lda", tuneLength = 20, trControl = ctrl)
+
+lda.final.results <- rbind(lda.cinco = lda.cinco$results,
+                           lda.all = lda.all$results,
+                           lda.try.07 = lda.try.07$results,
+                           lda.try.11 = lda.try.11$results,
+                           lda.try.12 = lda.try.12$results,
+                           lda.try.13 = lda.try.13$results,
+                           lda.try.14 = lda.try.14$results,
+                           lda.try.15 = lda.try.15$results,
+                           lda.try.17 = lda.try.17$results,
+                           lda.try.18 = lda.try.18$results)
+
+lda.final.results <- lda.final.results[order(lda.final.results$Accuracy, 
+                                             decreasing = TRUE),][1:10,]
+lda.final.results[,2:5]
+```
+
+En este caso podemos ver que el mejor resultado obtenido por *lda* si emplea todas las variables y que obtiene un mejor resultado que *k-NN*.
+
+### Apartado C3
+
+Utilizar el algoritmo QDA para clasificar.
+
+---
+
+Al igual que hemos hecho en el apartado de regresión, vamos a aplicar el algoritmo *qda* usando las fórmulas de los diez mejores modelos obtenidos en el apartado anterior:
+
+```{r}
+set.seed(1)
+qda.cinco <- train(outcome ~ ., data = pima[c(pima.mejores.outcome, "outcome")], 
+                   method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.all <- train(outcome ~ ., data = pima, method = "qda", 
+                 tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.07 <- train(outcome ~ preg+axge+skin+plas, 
+                    data = pima, method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.11 <- train(outcome ~ preg+axge+plas, data = pima, 
+                    method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.12 <- train(outcome ~ preg+skin+plas, data = pima, 
+                    method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.13 <- train(outcome ~ axge+skin+plas, data = pima, 
+                    method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.14 <- train(outcome ~ axge+plas, data = pima, 
+                    method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.15 <- train(outcome ~ preg+plas, data = pima, 
+                    method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.17 <- train(outcome ~ preg+plas+I(plas^2), data = pima, 
+                    method = "qda", tuneLength = 20, trControl = ctrl)
+set.seed(1)
+qda.try.18 <- train(outcome ~ preg+plas+I(preg^2), data = pima, 
+                    method = "qda", tuneLength = 20, trControl = ctrl)
+
+qda.final.results <- rbind(qda.cinco = qda.cinco$results,
+                           qda.all = qda.all$results,
+                           qda.try.07 = qda.try.07$results,
+                           qda.try.11 = qda.try.11$results,
+                           qda.try.12 = qda.try.12$results,
+                           qda.try.13 = qda.try.13$results,
+                           qda.try.14 = qda.try.14$results,
+                           qda.try.15 = qda.try.15$results,
+                           qda.try.17 = qda.try.17$results,
+                           qda.try.18 = qda.try.18$results)
+
+qda.final.results <- qda.final.results[order(qda.final.results$Accuracy, 
+                                             decreasing = TRUE),][1:10,]
+qda.final.results[,2:5]
+```
+
+En este caso, los resultados son peores que usando *lda* y similares a los obtenidos con *k-NN*. El mejor modelo es *qda.cinco*, el cual usa las cinco variables con una mayor correlación con la variable de salida.
+
+### Apartado C4
+
+Comparar los resultados de los tres algoritmos.
+
+---
+
+Vamos a combinar los diez mejores resultados de los tres algoritmos en una única matriz:
+
+```{r}
+class.final.results <- cbind(knn.final.results[order(row.names(knn.final.results)), ],
+                             lda.final.results[order(row.names(lda.final.results)), ],
+                             qda.final.results[order(row.names(qda.final.results)), ])
+                             
+class.final.results <- class.final.results[,c(2,7,12)]
+
+rownames(class.final.results) <- sub("knn.", "", rownames(class.final.results))
+colnames(class.final.results) <- c("k-NN Accuracy", "lda Accuracy", "qda Accuracy")
+class.final.results
+```
+
+Para realizar la comparativa, vamos a usar un test de Friedman, que permite detectar si hay diferencias significativas en algún par de algoritmos:
+
+```{r}
+test_friedman <- friedman.test(as.matrix(class.final.results))
+test_friedman
+```
+
+Obtenemos un *pvalue* de `r test_friedman$p.value`, por lo que no podemos rechazar la hipótesis nula y, por lo tanto, no podemos afirmar que existan diferencias entre algún par de algoritmos. Como son sólo tres algoritmos (la cantidad es pequeña), podemos compararlos de dos en dos para confirmar que esto es asi. Para ello voy a usar un test de Wilcoxon. La hipotesis nula de este test es que los dos algoritmos a comparar son iguales. Primero vamos a comparar *k-NN* con *lda*:
+
+```{r}
+tablatst <- class.final.results
+
+difs <- (tablatst[,1] - tablatst[,2]) / tablatst[,1]
+wilc_1_2 <- cbind(ifelse (difs<0, abs(difs)+0.1, 0+0.1), 
+                  ifelse (difs>0, abs(difs)+0.1, 0+0.1))
+colnames(wilc_1_2) <- c(colnames(tablatst)[1], colnames(tablatst)[2])
+wilc_1_2
+
+LMvsKNNtst1 <- wilcox.test(wilc_1_2[,1], wilc_1_2[,2], exact = FALSE, 
+                           alternative = "two.sided", paired=TRUE)
+LMvsKNNtst2 <- wilcox.test(wilc_1_2[,2], wilc_1_2[,1], exact = FALSE, 
+                           alternative = "two.sided", paired=TRUE)
+values <- list(Rmas = LMvsKNNtst1$statistic, Rmenos = LMvsKNNtst2$statistic, 
+               pvalue = LMvsKNNtst1$p.value)
+values
+```
+
+Como podemos ver, el *pvalue* es altísimo, así que no podemos rechazar la hipotesis nula. Vamos a comparar *k-NN* con *qda*:
+
+```{r}
+tablatst <- class.final.results
+
+difs <- (tablatst[,1] - tablatst[,3]) / tablatst[,1]
+wilc_1_2 <- cbind(ifelse (difs<0, abs(difs)+0.1, 0+0.1), 
+                  ifelse (difs>0, abs(difs)+0.1, 0+0.1))
+colnames(wilc_1_2) <- c(colnames(tablatst)[1], colnames(tablatst)[3])
+wilc_1_2
+
+LMvsKNNtst1 <- wilcox.test(wilc_1_2[,1], wilc_1_2[,2], exact = FALSE, 
+                           alternative = "two.sided", paired=TRUE)
+LMvsKNNtst2 <- wilcox.test(wilc_1_2[,2], wilc_1_2[,1], exact = FALSE, 
+                           alternative = "two.sided", paired=TRUE)
+values <- list(Rmas = LMvsKNNtst1$statistic, Rmenos = LMvsKNNtst2$statistic, 
+               pvalue = LMvsKNNtst1$p.value)
+values
+```
+
+En este caso obtenemos un *pvalue* más alto todavía, así que tampoco podemos rechazar la hipótesis nula. Finalmente, vamos a comprar *lda* con *qda*:
+
+```{r}
+tablatst <- class.final.results
+
+difs <- (tablatst[,2] - tablatst[,3]) / tablatst[,2]
+wilc_1_2 <- cbind(ifelse (difs<0, abs(difs)+0.1, 0+0.1), 
+                  ifelse (difs>0, abs(difs)+0.1, 0+0.1))
+colnames(wilc_1_2) <- c(colnames(tablatst)[2], colnames(tablatst)[3])
+wilc_1_2
+
+LMvsKNNtst1 <- wilcox.test(wilc_1_2[,1], wilc_1_2[,2], exact = FALSE, 
+                           alternative = "two.sided", paired=TRUE)
+LMvsKNNtst2 <- wilcox.test(wilc_1_2[,2], wilc_1_2[,1], exact = FALSE, 
+                           alternative = "two.sided", paired=TRUE)
+values <- list(Rmas = LMvsKNNtst1$statistic, Rmenos = LMvsKNNtst2$statistic, 
+               pvalue = LMvsKNNtst1$p.value)
+values
+```
+
+En este caso, el *pvalor* obtenido sigue siendo alto, así que tampoco podemos rechazar la hipótesis nula. 
+
+A continuación voy a comparar los resultados de test proporcionados:
+
+```{r}
+resultados <- read.csv("clasif_test_alumos.csv")
+tablatst <- cbind(resultados[,2:dim(resultados)[2]])
+colnames(tablatst) <- names(resultados)[2:dim(resultados)[2]]
+rownames(tablatst) <- resultados[,1]
+```
+
+Primero voy a aplicar un test de Friedman:
+
+```{r}
+test_friedman <- friedman.test(as.matrix(tablatst))
+test_friedman
+```
+
+En este caso, el *pvalue* obtenido es `r test_friedman$p.value`, así que no podemos afirmar que existen diferencias entre los algoritmos. Como son sólo tres algoritmos (la cantidad es pequeña), podemos compararlos de dos en dos para confirmar que esto es asi. Para ello voy a usar un test de Wilcoxon. La hipotesis nula de este test es que los dos algoritmos a comparar son iguales. Primero voy a comparar *k-NN* y *lda*:
+
+```{r}
+difs <- (tablatst[,1] - tablatst[,2]) / tablatst[,1]
+wilc <- cbind(ifelse(difs<0, abs(difs)+0.1, 0.1), ifelse(difs>0, abs(difs)+0.1, 0.1))
+colnames(wilc) <- c(colnames(tablatst)[1], colnames(tablatst)[2])
+wilc
+
+LMvsKNN1 <- wilcox.test(wilc[,1], wilc[,2], alternative = "two.sided", paired=TRUE)
+LMvsKNN2 <- wilcox.test(wilc[,2], wilc[,1], alternative = "two.sided", paired=TRUE)
+
+c(Rmas = LMvsKNN1$statistic, Rmenos = LMvsKNN2$statistic, pvalue = LMvsKNN1$p.value)
+```
+
+En este caso, obtenemos un *pvalue* bastante alto, así que no podemos rechazar la hipotesis nula. Vamos a comparar ahora *k-NN* con *qda*:
+
+```{r}
+difs <- (tablatst[,1] - tablatst[,3]) / tablatst[,2]
+wilc <- cbind(ifelse(difs<0, abs(difs)+0.1, 0.1), ifelse(difs>0, abs(difs)+0.1, 0.1))
+colnames(wilc) <- c(colnames(tablatst)[1], colnames(tablatst)[3])
+wilc
+
+LMvsKNN1 <- wilcox.test(wilc[,1], wilc[,2], alternative = "two.sided", paired=TRUE)
+LMvsKNN2 <- wilcox.test(wilc[,2], wilc[,1], alternative = "two.sided", paired=TRUE)
+
+c(Rmas = LMvsKNN1$statistic, Rmenos = LMvsKNN2$statistic, pvalue = LMvsKNN1$p.value)
+```
+
+En este caso, obtenemos un *pvalue* bastante alto, así que no podemos rechazar la hipotesis nula. Vamos a comparar ahora *lda* con *qda*:
+
+```{r}
+difs <- (tablatst[,2] - tablatst[,3]) / tablatst[,2]
+wilc <- cbind(ifelse(difs<0, abs(difs)+0.1, 0.1), ifelse(difs>0, abs(difs)+0.1, 0.1))
+colnames(wilc) <- c(colnames(tablatst)[2], colnames(tablatst)[3])
+wilc
+
+LMvsKNN1 <- wilcox.test(wilc[,1], wilc[,2], alternative = "two.sided", paired=TRUE)
+LMvsKNN2 <- wilcox.test(wilc[,2], wilc[,1], alternative = "two.sided", paired=TRUE)
+
+c(Rmas = LMvsKNN1$statistic, Rmenos = LMvsKNN2$statistic, pvalue = LMvsKNN1$p.value)
+```
+
+En este caso, obtenemos un *pvalue* bastante alto, así que no podemos rechazar la hipotesis nula.
+
+En ningún test podemos decir que un algoritmo sea mejor que otro, así que vamos a pintar un gráfico comparativo con los resultados obtenidos para los distintos modelos y los distintos algoritmos:
+
+```{r}
+modelo <- rownames(class.final.results)
+knn.accuracy <- class.final.results$`k-NN Accuracy`
+lda.accuracy <- class.final.results$`lda Accuracy`
+qda.accuracy <- class.final.results$`qda Accuracy`
+
+cols <- c("knn"="#f04546", "lda"="#3591d1", "qda"="#008080")
+p <- ggplot()
+p <- p + geom_point(aes(x=modelo, y=knn.accuracy, group = 1, colour="knn"))
+p <- p + geom_point(aes(x=modelo, y=lda.accuracy, group = 1, colour="lda"))
+p <- p + geom_point(aes(x=modelo, y=qda.accuracy, group = 1, colour="qda"))
+p <- p + labs(x = "Modelo", y = "Accuracy")
+p + scale_colour_manual(name="Algoritmo", values=cols)
+```
+
+Como podemos ver, el mejor resutlado de todos lo obtenemos con *lda* y el modelo *all*, el que usa todas las variables. Vamos a ver cuantas veces cada algoritmo es el que mejor resultados obtiene:
+
+```{r}
+mejor_algoritmo <- function(x) names(x[which.max(x)])
+algoritmos <- apply(t(class.final.results), 2, mejor_algoritmo)
+algoritmos <- sub(" Accuracy", "", algoritmos)
+names(algoritmos) <- NULL
+table(algoritmos)
+```
+
+Como podemos ver, el que mejores resultados a dado ha sido *lda*.

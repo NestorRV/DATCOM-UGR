@@ -1,0 +1,72 @@
+---
+title: "Monotónica"
+author: "Néstor Rodriguez Vico - nrv23@correo.ugr.es"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+```{r}
+# Fijamos la semilla para poder replicar los experimentos
+set.seed(1)
+
+# Leemos el conjunto de datos
+esl <- RWeka::read.arff("material/esl.arff")
+# Generamos el indice de los elementos que perteneceran al conjunto de test
+index <- sample(1:nrow(esl), 100)
+# Contruimos el conjunto de train
+train <- esl[-index,]
+# Contruimos el conjunto de test
+test <- esl[index,]
+
+generate.binary.dataset <- function(class, data) {
+  aux <- data[,-ncol(data)]
+  # La salida va a ser 1 para las instancias cuya clase sea mayor estrictor que 
+  # la clase que quiere aprender el clasificador para este conjunto de datos
+  out <- as.integer(data[,ncol(data)] > class)
+  return(cbind(aux, out))
+}
+
+generate.binary.datasets <- function(data) {
+  # Obtenemos las clases objetivo
+  clases <- sort(unique(data[,ncol(data)]))
+  # Para cada clase, excepto la última, generamos el dataset asociado
+  return(lapply(clases[-length(clases)], generate.binary.dataset, data = data))
+}
+
+generate.xgboost.model <- function(data) {
+  # Generamos un vector de 1 para indicar que todas las variables tienen
+  #  relación monotónica con la salida
+  monotone.constraints.vector <- rep(1, ncol(data) - 1)
+  
+  # Aprendemos el modelo
+  m <- xgboost::xgboost(data = data.matrix(data[, -ncol(data)]), 
+                        label = data[, ncol(data)], nrounds = 100, 
+                        objective = "binary:logistic", verbose = 0,
+                        params = list(monotone_constraints=monotone.constraints.vector))
+  
+  return(m)
+}
+
+predict.xgboost <- function(models, test) {
+  # Construimos la matriz para predecir
+  dmatrix.test <- xgboost::xgb.DMatrix(data = data.matrix(test))
+  # Predecimos todos los elementos con cada uno de los clasificares
+  predictions <- lapply(models, predict, newdata = dmatrix.test)
+  # Convertimos las predicciones en una matriz y convertimos la
+  # probabilidad en si pertenece a una clase o no
+  predictions <- do.call(cbind, predictions) > 0.5
+  # Aplicamos la fórmula de las transparencias, sumatoria de las clases más 1
+  predictions <- apply(predictions, 1, sum) + 1
+  return(predictions)
+}
+
+# Generamos los datasets
+binary.datasets <- generate.binary.datasets(train)
+# Calculamos los modelos
+xgboost.models <- lapply(binary.datasets, generate.xgboost.model)
+# Realizamos la predicción
+final.prediction <- predict.xgboost(xgboost.models, test[, -ncol(test)])
+# Calculamos el porcentaje de acierto
+accuracy <- mean(final.prediction == test[, ncol(test)])
+accuracy
+```

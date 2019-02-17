@@ -1,0 +1,529 @@
+---
+title: "Introducción a la Ciencia de Datos: EDA"
+author: "Néstor Rodriguez Vico"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+# EDA
+
+## Exploratory Data Analysis
+
+### Ejemplo 1, hip dataset
+
+#### Descargate el  dataset hip con el siguiente commando 
+
+```{r}
+hip  <-read.table("http://astrostatistics.psu.edu/datasets/HIP_star.dat", header=T,fill=T)
+```
+
+####  Una vez descargado comprueba la dimensión y los nombres de las columnas del dataset. ¿Qué dimensión tiene? ¿qué datos alberga?
+
+```{r}
+dim(hip)
+names(hip)
+summary(hip)
+```
+
+El conjunto tiene 2719 elementos y 9 dimensiones. Ninguna variable es categórica, ya que todos los valores son númericos (y decímales) contínuos. También podemos ver que tenemos 41 valores perdidos. Si vemos los valores mínimos, máximos y las medias de cada columna, podemos ver que en algunas hay ciertos outliers, por ejemplo, en la volumnas Vmag:
+
+```{r}
+boxplot(hip$Vmag)
+```
+
+Debemos tener en cuenta que la variable HIP (primera columna), a pesar de ser numérica, representa un identificador, así que podríamos considerarlo una variable categórica.
+
+####  Muestra por pantalla la columna de la variable RA
+
+```{r}
+head(hip$RA)
+```
+
+No la muestro entera porque ocupa demasiado en el pdf.
+
+
+#### Calcula las tendencias centrales de todos los datos del dataset (mean, media) utilizando la function apply
+
+```{r}
+apply(hip, 2, mean)
+```
+
+#### Haz lo mismo para las medidas de dispersión mínimo y máximo. ¿Seria posible hacerlo con un único comando?¿Que hace la función range()
+
+```{r}
+apply(hip, 2, min)
+apply(hip, 2, max)
+apply(hip, 2, range)
+```
+
+range devuelve el valor mínimo y el valor máximo de la colección pasada.
+
+#### Sin embargo las medidas mas populares de dispersión son la varianza (var()), su desviación standard (sd()) y la desviación absoluta de la mediana o MAD. Calcula estas medidas para los valores de RA
+
+```{r}
+var(hip$RA)
+sd(hip$RA)
+mad(hip$RA)
+```
+
+#### Imagina que quieres calcular dos de estos valores de una sola vez. ¿Te serviría este código?
+
+```{r}
+f = function(x) c(median(x), mad(x))  
+f(hip[,3])
+```
+
+Si sirve, porque lo único que hace es llamar a las dos funiones y devolverlas en un array.
+
+#### ¿Cuál sería el resultado de aplicar apply(hip,2,f)?
+
+```{r}
+apply(hip,2,f)
+```
+
+Obtenemos la mediana y la desviación mediana absoluta para cada columna de hip.
+
+
+#### Vamos a medir la dispersión de la muestra utilizando el concepto de cuartiles. El percentil 90 es aquel dato que excede en un 10% a todos los demás datos. El cuartil (quantile) es el mismo concento, solo que habla de proporciones en vez de porcentajes. De forma que el percentil 90 es lo mismo que el cuartil 0.90. La mediana "median" de un dataset es el valor más central, en otras palabras exactamente la mitad del dataset excede la media. Calcula el cuartil .10 y .50 para la columna RA del dataset hip. Sugerencia: quantile()
+
+```{r}
+quantile(hip$RA, probs=c(0.1, 0.5))
+```
+
+#### Los cuantiles 0.25 y 0.75 se conocen como el  first quartile y el third quartile, respectivamente. Calcula los cuatro cuartiles para RA con un único comando.
+
+```{r}
+quantile(hip$RA, probs=c(0.25, 0.5, 0.75, 1.0))
+```
+
+
+#### Otra medida de dispersion es la diferencia entre el primer y el tercer cuartil conocida como rango intercuartil (IQR) Inter Quantile Range. ¿Obtienes ese valor con la función summary()?
+
+```{r}
+summary(hip)
+```
+
+No de forma directa, pero si obtenemos el primer cuartil y el tercero, lo único que debemos hacer es realizar la resta.
+
+#### Hasta ahora has ignorado la presencia de valores perdidos NA. La función any() devuelve TRUE si se encuentra al menos un TRUE en el vector que damos como argumento. Su combinación con is.na es muy útil. ¿qué obtienes cuando ejecutas el siguiente comando? ¿Cómo lo interpretas
+
+```{r}
+hasNA = function(x) any(is.na(x)) 
+apply(hip,2,hasNA)
+```
+
+Sirve para ver si las columnas tiene algún valor perdido. En este caso, podemos ver que la columnas B.V tiene, al menos, un valor perdido.
+
+#### Como has observado nos devuelve NA para toda la columna,  normalmente querríamos poder usar la función sobre el resto de datos que no son NA: Para ello podemos utilizar la función na.omit. ¿Que ocurre cuando lo hacemos?. Usando apply calcula la media para hip y hip1=na.ommit(hip). Intenta calcular la media de forma que solo cambie la de B.V cuando ignores los valores NA.
+
+```{r}
+apply(hip, 2, mean)
+hip1=na.omit(hip)
+apply(hip1, 2, mean)
+```
+
+Como podemos ver, con na.ommit se omiten las filas que tienen valores na, así que la media se ve afectada en las demás columnas y podemos ver la media de la columna B.V.
+
+#### Obten una idea aproximada de tus datos mediante la creación de un boxplot del hip dataset
+
+```{r}
+boxplot(hip[,-1])
+```
+
+Como podemos ver, hay ciertas variables que tienen varios outliers, variable que tienen un rango bastante más grande que otras y variables cuyos valores máximos y minimos están muy cercanos a los cuartiles y otras que no.
+
+#### Crea un scatterplot que te compare los valores de RA y DE. Representa los puntos con el símbolo '.' Y que estos puntos sean de color rojo si DE excede de 0. Sugerencia ifelse()
+
+```{r}
+plot(hip$RA, hip$DE, col=ifelse(hip$DE > 0, "red", "black"), pch = '.')
+```
+
+#### Haz un scatterplot de RA y pmRA. ¿Ves algún patrón?
+
+```{r}
+plot(hip$RA, hip$pmRA)
+```
+
+#### En vez de crear los plots por separado para cada par de columnas, hazlos con un solo comando con el scatterplot matrix
+
+```{r}
+pairs(hip)
+```
+
+#### Para poder acceder a las variables por su nombre usa attach(hip).Vamos a seleccionar las estrellas Hyadas del dataset aplicando los siguientes filtros:
+
+```{r}
+attach(hip)
+```
+
+RA in the range (50,100) 
+
+```{r}
+filter1 <- hip[RA > 50 & RA < 100,]
+```
+
+DE in the range (0,25) 
+
+```{r}
+filter1 <- hip[DE > 0 & DE < 25,]
+```
+
+pmRA in the range (90,130) 
+
+```{r}
+filter1 <- hip[pmRA > 90 & pmRA < 130,]
+```
+
+pmDE in the range (-60,-10) 
+
+```{r}
+filter1 <- hip[pmDE > -60 & pmDE < -10,]
+```
+
+e_Plx <5 
+
+```{r}
+filter1 <- hip[e_Plx < 5,]
+```
+
+Vmag >4 OR B.V <0.2 (this eliminates 4 red giants) 
+
+```{r}
+filter1 <- hip[Vmag > 4 | B.V < 0.2,]
+```
+
+#### Crea un nuevo dataset con la aplicación de estos filtro. El Nuevo dataset se llama hyades. ¿Que dimensiones tiene? Grafica un scatterplot de Vmag vs B.V
+
+```{r}
+hyades <- hip[DE > 0 & DE < 25 & pmRA > 90 & pmRA < 130 & pmDE > -60 & pmDE < -10 & 
+                e_Plx < 5 & Vmag > 4 | B.V < 0.2, ]
+dim(hyades)
+plot(hyades$Vmag, hyades$B.V)
+```
+
+### Ejemplo 1, iris dataset
+
+#### Inspecciona las primeras filas del dataset y calcula el summary() del mismo con cada atributo del dataset
+
+```{r}
+head(iris)
+summary(iris)
+```
+
+#### Crea un histograma de petal.width , teniendo en cuenta que el numero de bins es variable fija este a 9. Añádele color y nombres al eje x "Petal Width" y al gráfico dale el nombre de  "Histogram of Petal Width". Crea un histograma para cada variable:
+
+```{r}
+hist(iris$Petal.Length, main="Histogram", xlab="Petal length", 
+     breaks = seq(min(iris$Petal.Length),max(iris$Petal.Length),l=9), col = "red")
+
+hist(iris$Petal.Width, main="Histogram", xlab="Petal Width", 
+     breaks = seq(min(iris$Petal.Width),max(iris$Petal.Width),l=9), col = "red")
+
+hist(iris$Sepal.Length, main="Histogram", xlab="Sepal length", 
+     breaks = seq(min(iris$Sepal.Length),max(iris$Sepal.Length),l=9), col = "red")
+
+hist(iris$Sepal.Width, main="Histogram", xlab="Sepal Width", 
+     breaks = seq(min(iris$Sepal.Width),max(iris$Sepal.Width),l=9), col = "red")
+```
+
+#### Crea los cuartiles del dataset
+
+```{r}
+apply(iris[,1:4], 2, quantile)
+```
+
+#### Representa en un boxplot la variable de ancho de hoja dependiendo del tipo de hoja que tengan
+
+```{r}
+boxplot(iris$Petal.Width~iris$Species)
+```
+
+#### Crea los cuartiles para cada tipo de iris y represéntalos en un plot como líneas cada una de un color
+
+```{r}
+library(ggplot2)
+versicolor <- subset(iris, iris$Species == "versicolor")
+setosa <- subset(iris, iris$Species == "setosa")
+virginica <- subset(iris, iris$Species == "virginica")
+
+versicolor_petal_length <- quantile(versicolor$Petal.Length)
+versicolor_petal_width <- quantile(versicolor$Petal.Width)
+versicolor_sepal_length <- quantile(versicolor$Sepal.Length)
+versicolor_sepal_width <- quantile(versicolor$Sepal.Width)
+
+setosa_petal_length <- quantile(setosa$Petal.Length)
+setosa_petal_width <- quantile(setosa$Petal.Width)
+setosa_sepal_length <- quantile(setosa$Sepal.Length)
+setosa_sepal_width <- quantile(setosa$Sepal.Width)
+
+virginica_petal_length <- quantile(virginica$Petal.Length)
+virginica_petal_width <- quantile(virginica$Petal.Width)
+virginica_sepal_length <- quantile(virginica$Sepal.Length)
+virginica_sepal_width <- quantile(virginica$Sepal.Width)
+
+cols <- c("Versicolor"="#f04546", "Setosa"="#3591d1", "Virginica"="#009688")
+p <- ggplot()
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = versicolor_petal_length, 
+                       colour="Versicolor"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = setosa_petal_length, 
+                       colour="Setosa"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = virginica_petal_length, 
+                       colour="Virginica"))
+p <- p + labs(x = "Cuartil", y = "Valor") + ggtitle("Petal length")
+p <- p + scale_colour_manual(name="Cuartiles",values=cols)
+p
+
+cols <- c("Versicolor"="#f04546", "Setosa"="#3591d1", "Virginica"="#009688")
+p <- ggplot()
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = versicolor_petal_width, 
+                       colour="Versicolor"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = setosa_petal_width, 
+                       colour="Setosa"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = virginica_petal_width, 
+                       colour="Virginica"))
+p <- p + labs(x = "Cuartil", y = "Valor") + ggtitle("Petal width")
+p <- p + scale_colour_manual(name="Cuartiles",values=cols)
+p
+
+cols <- c("Versicolor"="#f04546", "Setosa"="#3591d1", "Virginica"="#009688")
+p <- ggplot()
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = versicolor_sepal_length, 
+                       colour="Versicolor"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = setosa_sepal_length, 
+                       colour="Setosa"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = virginica_sepal_length, 
+                       colour="Virginica"))
+p <- p + labs(x = "Cuartil", y = "Valor") + ggtitle("Sepal length")
+p <- p + scale_colour_manual(name="Cuartiles",values=cols)
+p
+
+cols <- c("Versicolor"="#f04546", "Setosa"="#3591d1", "Virginica"="#009688")
+p <- ggplot()
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = versicolor_sepal_width, 
+                       colour="Versicolor"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = setosa_sepal_width, 
+                       colour="Setosa"))
+p <- p + geom_line(aes(x = c(0, 0.25, 0.5, 0.75, 1), y = virginica_sepal_width, 
+                       colour="Virginica"))
+p <- p + labs(x = "Cuartil", y = "Valor") + ggtitle("Sepal width")
+p <- p + scale_colour_manual(name="Cuartiles",values=cols)
+p
+```
+
+#### Crea los boxplot de la longitud del pétalo en función de la especie de Iris.
+
+```{r}
+boxplot(iris$Petal.Length~iris$Species)
+```
+
+#### Compara con scatter plots las variables entre sí.
+
+```{r}
+pairs(iris[,1:4])
+```
+
+#### El conjunto de datos "swiss" contiene una medida estandarizada de fecundidad y varios indicadores socioeconómicos para cada una de las 47 provincias francófonas de Suiza. 
+
+##### 1. ¿Qué diagrama dibujaría para mostrar la distribución de todos los valores? ¿Qué conclusiones sacarías? 
+
+```{r}
+par(mfrow=c(2,3))
+plot(density(swiss$Fertility), main="swiss$Fertility")
+plot(density(swiss$Agriculture), main="swiss$Agriculture")
+plot(density(swiss$Examination), main="swiss$Examination")
+plot(density(swiss$Education), main="swiss$Education")
+plot(density(swiss$Catholic), main="swiss$Catholic")
+plot(density(swiss$Infant.Mortality), main="swiss$Infant.Mortality")
+par(mfrow=c(1,1))
+```
+
+Podemos ver que hay variables que siguen una distribución similar (las de la primera fila junto con Infant.Mortality). También podemos ver que la variable Education fluctúa bastante.
+
+##### 2. Dibuje gráficos para cada variable. ¿Qué puede concluir de las distribuciones con respecto a su forma y posibles valores atípicos? 
+
+```{r}
+pairs(swiss)
+boxplot(swiss)
+```
+
+Podemos ver que, por ejemplo, en la variable Fertility, Education e Infant.Mortality contienen valores atípicos Tambien podemos ver que todas las variables excepto Agriculture y Catholic son bastante compactas, es decir, sus valores están en un rango bastante pequeño.
+
+##### 3. Dibuja un diagrama de dispersión de Fertilidad frente a % Catholic. ¿Qué tipo de áreas tienen las tasas de fertilidad más bajas? 
+
+```{r}
+plot(swiss$Fertility, swiss$Catholic)
+```
+
+Las zonas menos fertiles son las zonas cuya población católica es la mitad de los habitantes.
+
+##### 4.¿Qué tipo de relación existe entre las variables Educación y Agricultura?
+
+```{r}
+plot(swiss$Education, swiss$Agriculture)
+```
+
+Las zonas con menos educación son las zonas con más agricultura.
+
+#### El conjunto de datos de aceites de oliva es bien conocido y se puede encontrar en varios paquetes, por ejemplo, como aceitunas en extracat.. La fuente original de los datos es el artículo [Forina et al., 1983]. 
+
+##### 1. Dibuje un scatterplot  de las ocho variables continuas. ¿Cuáles de los ácidos grasos están fuertemente asociados positivamente y cuáles fuertemente asociados negativamente? 
+
+```{r}
+library("extracat")
+pairs(olives[, 3:10])
+cor(olives[,3:10], olives[,3:10])
+```
+
+Fuertemente asociados positivamente (mayores que 0.8): palmitoleic con palmitic.
+Fuertemente asociados negativamente (menores que 0.8): oleic con palmitic, oleic con linoleic.
+
+##### 2. ¿Hay valores atípicos u otras características que valga la pena mencionar?
+
+```{r}
+par(mfrow=c(2,4))
+boxplot(olives$palmitic)
+title("olives$palmitic")
+boxplot(olives$palmitoleic)
+title("olives$palmitoleic")
+boxplot(olives$stearic)
+title("olives$stearic")
+boxplot(olives$oleic)
+title("olives$oleic")
+boxplot(olives$linoleic)
+title("olives$linoleic")
+boxplot(olives$linolenic)
+title("olives$linolenic")
+boxplot(olives$arachidic)
+title("olives$arachidic")
+boxplot(olives$eicosenoic)
+title("olives$eicosenoic")
+par(mfrow=c(1,1))
+```
+
+Podemos ver que sí, que hay valores atípicos, y bastantes, sobre todo en arachidic y en stearic. Tambie´n podemos mencionar que los datos están bastante bien repartidos excepto en eicosenoic.
+
+#### El conjunto de datos se llama Lanza del paquete HSAUR2. 
+
+##### 1. Se informan los datos de cuatro estudios. Dibuje un diagrama para mostrar si los cuatro estudios son igualmente grandes. 
+
+```{r}
+library("HSAUR2")
+plot(Lanza$study)
+```
+
+Podemos ver que los tres primeros estudios si tienen un tamaño similar, pero que el estudio 4 tiene un tamaño bastante mayor.
+
+##### 2. El resultado se mide por la clasificación de la variable con puntuaciones de 1 (mejor) a 5 (peor). ¿Cómo describirías la distribución?
+
+```{r}
+plot(Lanza$classification)
+```
+
+Podemos ver que los resultados 2, 3 y 4 son bastante similares, pero que los resultados con valor 1 es muy dispar.
+
+#### El paquete vcdExtra incluye datos de un viejo estudio de cáncer de mama sobre la supervivencia o muerte de 474 pacientes. 
+
+##### 1. Convierta los datos en un data frame y dibuje gráficos para comparar las tasas de supervivencia, primero, por grado de malignidad y, en segundo lugar, por centro de diagnóstico.
+
+```{r}
+library("vcdExtra")
+cancer <- data.frame(Cancer)
+```
+
+```{r}
+died_malignant <- sum(subset(cancer, cancer$Survival == "Died" & 
+                               cancer$Grade == "Malignant")$Freq)
+died_bening <- sum(subset(cancer, cancer$Survival == "Died" & 
+                            cancer$Grade == "Benign")$Freq)
+surv_malignant <- sum(subset(cancer, cancer$Survival == "Surv" & 
+                               cancer$Grade == "Malignant")$Freq)
+surv_bening <- sum(subset(cancer, cancer$Survival == "Surv" & 
+                            cancer$Grade == "Benign")$Freq)
+data <- cbind(died_malignant, died_bening, surv_bening, surv_malignant)
+barplot(data)
+```
+
+```{r}
+died_boston <- sum(subset(cancer, cancer$Survival == "Died" & 
+                            cancer$Center == "Boston")$Freq)
+died_glamorgan <- sum(subset(cancer, cancer$Survival == "Died" & 
+                               cancer$Center == "Glamorgan")$Freq)
+surv_boston <- sum(subset(cancer, cancer$Survival == "Surv" & 
+                            cancer$Center == "Boston")$Freq)
+surv_glamorgan <- sum(subset(cancer, cancer$Survival == "Surv" & 
+                               cancer$Center == "Glamorgan")$Freq)
+data <- cbind(died_boston, died_glamorgan, surv_boston, surv_glamorgan)
+barplot(data)
+```
+
+##### 2. ¿Qué diagrama dibujaría para comparar las tasas de supervivencia tanto por grado de malignidad como por centro de diagnóstico? ¿Importa el orden de las variables explicativas?
+
+Unos diagramas como los presentados en el ejercicio anterior, pintando una barra para cada condición que se quiera comprobar. Importan en el visual de como quedan los gráficos.
+
+#### Dataset Crabs (del paquete MASS) [Venables y Ripley, 2002]. Los autores inicialmente se transforman a una escala logarítmica y luego escriben que: "The data are very highly correlated and scatterplot matrices and brush plots [i.e. interactive graphics] are none too revealing." Utilizando gráficos generales, comente si la transformación logaritmica fue una buena idea y si está de acuerdo con su afirmación sobre las correlaciones.
+
+## Extra
+
+### Como crear subgrupos de datos en R
+
+#### Busca información sobre la function cut(). Para ilustrar su uso vamos a utilizar el dataset state.x77. Si no lo tienes instalado instala el paquete R-Datasets. Usa la función head() para ver como son tus datos.
+
+```{r}
+head(state.x77)
+```
+
+##### Extrae la columna Frost y asigna el resultado a la variable frost
+
+```{r}
+frost <- data.frame(state.x77)$Frost
+```
+
+##### Tu Nuevo objeto es un vector numérico
+
+```{r}
+is.vector(frost)
+is.numeric(frost)
+```
+
+##### Ahora intenta agrupar los datos en frost en tres niveles. Para crear bins en tus datos puedes utilizar la función cut().
+
+```{r}
+cut(frost, breaks = 3)
+```
+
+##### ¿Que obtienes como nombres de los niveles?
+
+Unos intervalos en los que están separados los datos.
+
+##### En la realidad no existen estados que tengan frost en días negativos. Esto es porque R añade un poco de padding. Prueba a solucionar el problema utilizando el parámetro include.lowest=TRUE en cut()
+
+```{r}
+cut(frost, breaks = 3, include.lowest = TRUE)
+```
+
+##### Los nombres de los niveles no son demasiado informativos, especifica nuevos nombres para los niveles
+
+```{r}
+new_frost <- cut(frost, breaks = 3, labels = c("low", "medium", "high"))
+new_frost
+```
+
+##### Después de este paso has creado un factor que clasifica los estados en bajo, medio y alto según el numero de heladas.
+
+##### Ahora cuenta el número de estados que  hay en cada uno de los niveles. PISTA: utiliza la función table()
+
+```{r}
+table(new_frost)
+```
+
+#### Feature Eingeneering
+
+#### In addition to existing independent variables, we will create new variables to improve the prediction power of model
+
+```{r}
+data <- read.csv("bikes_rent/train.csv")
+# Podemos ver las variables que tenemos disponibles
+names(data)
+# Y un poco los valores que tenemos
+head(data)
+```

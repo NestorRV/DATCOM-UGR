@@ -1,0 +1,242 @@
+---
+title: "Laboratorio clasificación no balanceada."
+author: "Néstor Rodriguez Vico - nrv23@correo.ugr.es"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(caret)
+library(dplyr)
+library(pROC)
+library(tidyr)
+library(imbalance)
+```
+
+Para facilitar el proceso de prueba con los distintos algoritmos he empaquetado el código en una única función genérica:
+
+```{r}
+learn_model <- function(dataset, ctrl,message) {
+  knn.fit <- train(Class ~ ., data = dataset, method = "knn", 
+                   trControl = ctrl, preProcess = c("center","scale"), metric="ROC", 
+                   tuneGrid = expand.grid(k = c(1,3,5,7,9,11)))
+  knn.pred <- predict(knn.fit,newdata = dataset)
+  #Get the confusion matrix to see accuracy value and other parameter values
+  knn.cm <- confusionMatrix(knn.pred, dataset$Class,positive = "positive")
+  knn.probs <- predict(knn.fit,newdata = dataset, type="prob")
+  knn.roc <- roc(dataset$Class,knn.probs[,"positive"],color="green")
+  return(knn.fit)
+}
+
+test_model <-function(dataset, knn.fit,message){
+  knn.pred <- predict(knn.fit,newdata = dataset)
+  #Get the confusion matrix to see accuracy value and other parameter values
+  knn.cm <- confusionMatrix(knn.pred, dataset$Class,positive = "positive")
+  print(knn.cm)
+  knn.probs <- predict(knn.fit,newdata = dataset, type="prob")
+  knn.roc <- roc(dataset$Class,knn.probs[,"positive"])
+  #print(knn.roc)
+  plot(knn.roc, type="S", print.thres= 0.5,main=c("ROC Test",message),col="blue")
+  #print(paste0("AUC Test ",message,auc(knn.roc)))
+  return(knn.cm)
+}
+
+analize.dataset <- function(dataset) {
+  # visualize the data distribution
+  plot(dataset$Att1, dataset$Att2)
+  points(dataset[dataset$Class=="negative",1],dataset[dataset$Class=="negative",2],col="red")
+  points(dataset[dataset$Class=="positive",1],dataset[dataset$Class=="positive",2],col="blue")  
+  
+  imbalanceRatio(dataset)
+  
+  #Create Data Partition
+  set.seed(42)
+  dataset$Class <- relevel(dataset$Class,"positive")
+  index <- createDataPartition(dataset$Class, p = 0.7, list = FALSE)
+  train_data <- dataset[index, ]
+  test_data  <- dataset[-index, ]
+  
+  #Execute model ("raw" data)
+  ctrl <- trainControl(method="repeatedcv",number=5,repeats = 3,
+                       classProbs=TRUE,summaryFunction = twoClassSummary)
+  model.raw <- learn_model(train_data,ctrl,"RAW ")
+  #plot(model,main="Grid Search RAW")
+  #print(model.raw)
+  cm.raw <- test_model(test_data,model.raw,"RAW ")
+  
+  #Execute model ("preprocessed" data)
+  #Undersampling
+  ctrl <- trainControl(method="repeatedcv",number=5,repeats = 3,
+                       classProbs=TRUE,summaryFunction = twoClassSummary,sampling = "down")
+  model.us <- learn_model(train_data,ctrl, "Undersampling ")  
+  cm.us <- test_model(test_data,model.us, "Undersampling ")
+  
+  ctrl <- trainControl(method="repeatedcv",number=5,repeats = 3,
+                       classProbs=TRUE,summaryFunction = twoClassSummary,sampling = "up")
+  model.os <- learn_model(train_data,ctrl, "Oversampling ")
+  cm.os <- test_model(test_data,model.os, "Oversampling ")
+  
+  ctrl <- trainControl(method="repeatedcv",number=5,repeats = 3,
+                       classProbs=TRUE,summaryFunction = twoClassSummary,sampling = "smote")
+  model.smt <- learn_model(train_data,ctrl, "Smote ")
+  cm.smt <- test_model(test_data,model.smt, "Smote ")
+  
+  cat("Media geom. raw:", sqrt(cm.raw$byClass[["Specificity"]]*
+                                 cm.raw$byClass[["Sensitivity"]]), "\n")
+  cat("Media geom. us:", sqrt(cm.us$byClass[["Specificity"]]*
+                                cm.us$byClass[["Sensitivity"]]), "\n")
+  cat("Media geom. os:", sqrt(cm.os$byClass[["Specificity"]]*
+                                cm.os$byClass[["Sensitivity"]]), "\n")
+  cat("Media geom. smt:", sqrt(cm.smt$byClass[["Specificity"]]*
+                                 cm.smt$byClass[["Sensitivity"]]), "\n")
+  
+  models <- list(raw = model.raw, us = model.us, os = model.os, smt = model.smt)
+  
+  resampling <- resamples(models)
+  bwplot(resampling)
+  
+  comparison <- data.frame(model = names(models),
+                           Sensitivity = rep(NA, length(models)),
+                           Specificity = rep(NA, length(models)),
+                           Precision = rep(NA, length(models)),
+                           Recall = rep(NA, length(models)),
+                           F1 = rep(NA, length(models)))
+  
+  for (name in names(models)) {
+    cm_model <- get(paste0("cm.", name))
+    
+    comparison[comparison$model == name, ] <- filter(comparison, model == name) %>%
+      mutate(Sensitivity = cm_model$byClass["Sensitivity"],
+             Specificity = cm_model$byClass["Specificity"],
+             Precision = cm_model$byClass["Precision"],
+             Recall = cm_model$byClass["Recall"],
+             F1 = cm_model$byClass["F1"])
+  }
+  
+  comparison %>%
+    gather(x, y, Sensitivity:F1) %>%
+    ggplot(aes(x = x, y = y, color = model)) +
+    geom_jitter(width = 0.2, alpha = 0.5, size = 3)
+}
+```
+
+A continuación, leemos los datos:
+
+```{r}
+#load datasets
+subclus <- read.table("subclus.txt", sep=",")
+colnames(subclus) <- c("Att1", "Att2", "Class")
+summary(subclus)
+
+circle <- read.table("circle.txt", sep=",")
+colnames(circle) <- c("Att1", "Att2", "Class")
+summary(circle)
+
+glass0 <- data(glass0)
+```
+
+Llamamos a la función definida previamente con el dataset *subclus*:
+
+```{r}
+analize.dataset(subclus)
+```
+
+Llamamos a la función definida previamente con el dataset *circle*:
+
+```{r}
+analize.dataset(circle)
+```
+
+# Paquete imbalance
+
+```{r}
+analize.oversampling.dataset <- function(dataset, oversampling.method) {
+  dataset$Class <- relevel(dataset$Class,"positive")
+  set.seed(42)
+  index <- createDataPartition(dataset$Class, p = 0.7, list = FALSE)
+  train_data <- dataset[index, ]
+  test_data  <- dataset[-index, ]
+  
+  new_train <- oversample(train_data, 1, oversampling.method, classAttr = "Class")
+  plotComparison(train_data, new_train, cols = 2, attrs = names(dataset)[1:2], classAttr = "Class")
+  #Execute model ("raw" data)
+  ctrl <- trainControl(method="repeatedcv",number=5,repeats = 3,
+                       classProbs=TRUE, summaryFunction = twoClassSummary)
+  model.raw <- learn_model(train_data, ctrl,"RAW ")
+  cm.raw <- test_model(test_data, model.raw, "RAW ")
+  
+  ctrl <- trainControl(method="repeatedcv",number=5,repeats = 3,
+                     classProbs=TRUE,summaryFunction = twoClassSummary, sampling = "up")
+  model.os <- learn_model(new_train, ctrl, oversampling.method)
+  cm.os <- test_model(test_data, model.os, oversampling.method)
+    
+  cat("Media geom. raw:", sqrt(cm.raw$byClass[["Specificity"]]*
+                                 cm.raw$byClass[["Sensitivity"]]), "\n")
+  cat("Media geom. os:", sqrt(cm.os$byClass[["Specificity"]]*
+                                cm.os$byClass[["Sensitivity"]]), "\n")
+  
+  models <- list(raw = model.raw, os = model.os)
+  
+  resampling <- resamples(models)
+  bwplot(resampling)
+  
+  comparison <- data.frame(model = names(models),
+                           Sensitivity = rep(NA, length(models)),
+                           Specificity = rep(NA, length(models)),
+                           Precision = rep(NA, length(models)),
+                           Recall = rep(NA, length(models)),
+                           F1 = rep(NA, length(models)))
+  
+  for (name in names(models)) {
+    cm_model <- get(paste0("cm.", name))
+    
+    comparison[comparison$model == name, ] <- filter(comparison, model == name) %>%
+      mutate(Sensitivity = cm_model$byClass["Sensitivity"],
+             Specificity = cm_model$byClass["Specificity"],
+             Precision = cm_model$byClass["Precision"],
+             Recall = cm_model$byClass["Recall"],
+             F1 = cm_model$byClass["F1"])
+  }
+  
+  comparison %>%
+    gather(x, y, Sensitivity:F1) %>%
+    ggplot(aes(x = x, y = y, color = model)) +
+    geom_jitter(width = 0.2, alpha = 0.5, size = 3)
+}
+```
+
+Veamos el funcionamiento de Adasyn para el conjunto subclus:
+
+```{r}
+analize.oversampling.dataset(subclus, oversampling.method = "ADASYN")
+```
+
+Veamos el funcionamiento de PDFOS para el conjunto subclus:
+
+```{r}
+analize.oversampling.dataset(subclus, oversampling.method = "PDFOS")
+```
+
+Veamos el funcionamiento de MWMOTE para el conjunto subclus:
+
+```{r}
+analize.oversampling.dataset(subclus, oversampling.method = "MWMOTE")
+```
+
+Veamos el funcionamiento de Adasyn para el conjunto circle:
+
+```{r}
+analize.oversampling.dataset(circle, oversampling.method = "ADASYN")
+```
+
+Veamos el funcionamiento de PDFOS para el conjunto circle:
+
+```{r}
+analize.oversampling.dataset(circle, oversampling.method = "PDFOS")
+```
+
+Veamos el funcionamiento de MWMOTE para el conjunto circle:
+
+```{r}
+analize.oversampling.dataset(circle, oversampling.method = "MWMOTE")
+```

@@ -1,0 +1,183 @@
+---
+title: "Ejercicios Clasificación"
+author: "Néstor Rodriguez Vico - nrv23@correo.ugr.es"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+# Parte 1
+
+## Diagnosing breast cancer with k-NN
+
+```{r}
+require(ISLR)
+require(caret)
+
+wbcd <- read.csv("wisc_bc_data.csv", stringsAsFactors = FALSE)
+str(wbcd)
+head(wbcd)
+
+# Drop the id feature
+wbcd <- wbcd[,-1]
+# Table of diagnosis 
+table(wbcd$diagnosis)
+# Recode diagnosis as a factor
+wbcd$diagnosis <- factor(wbcd$diagnosis, levels = c("B", "M"), 
+                         labels = c("Benign", "Malignant")) 
+
+# Normalize the wbcd data
+wbcd_n <- as.data.frame(lapply(wbcd[,2:31], scale, center = TRUE, scale = TRUE))
+# Confirm that normalization worked
+summary(wbcd_n[,c("radius_mean", "area_mean", "smoothness_mean")])
+boxplot(wbcd_n[,c("radius_mean", "area_mean", "smoothness_mean")])
+plot(wbcd[,2:5], pch = '.')
+plot(wbcd_n[,1:4], col=wbcd[,1], pch = '.')
+cor(wbcd[,2:5]) 
+cor(wbcd_n[,1:4])
+
+# Create training and test data
+shuffle_ds <- sample(dim(wbcd_n)[1])
+eightypct <- (dim(wbcd_n)[1] * 80) %/% 100
+wbcd_train <- wbcd_n[shuffle_ds[1:eightypct], ]
+wbcd_test <- wbcd_n[shuffle_ds[(eightypct+1):dim(wbcd_n)[1]], ]
+# Create labels for training and test data
+wbcd_train_labels <- wbcd[shuffle_ds[1:eightypct], 1]
+wbcd_test_labels <- wbcd[shuffle_ds[(eightypct+1):dim(wbcd_n)[1]], 1]
+```
+
+### Exercise 1: Try with different k choices and do a quick comparison. You can draw a plot to show the results.
+
+```{r}
+knnFit <- train(x = wbcd_train, y = wbcd_train_labels, method = "knn", tuneLength = 20)
+plot(knnFit)
+```
+
+## The Stock Market Data
+
+### Exercise 2. Using the Smarket dataset: Perform 10 fold-cv with logistic regression.
+
+```{r}
+# number = 5 -> numéro de folds
+# repeates = 10 -> número de veces de aplicar cv, 10 en este caso
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=10)
+
+glmFit <- train(Smarket[, c(-1, -7, -8, -9)], y = Smarket[,9], method = "glm", 
+                preProcess = c("center", "scale"), tuneLength = 10,
+                control=glm.control(maxit=500), trControl = ctrl)
+
+glmFit
+```
+
+# Parte 2
+
+## The Stock Market Data
+
+### Exercise 1 (Smarket data). Try lda with all Lag variables. Make a quick comparison between logistic regression and lda. Try with qda and compare all three methods. Plot the results.
+
+```{r}
+library(MASS)
+library(ISLR)
+set.seed(1)
+# Linear Discriminant Analysis
+attach(Smarket)
+lda.fit <- lda(Direction~Lag1+Lag2+Lag3+Lag4+Lag5,data=Smarket, subset=Year<2005)
+lda.fit
+Smarket.2005 <- subset(Smarket,Year==2005)
+lda.pred <- predict(lda.fit,Smarket.2005)
+class(lda.pred)
+table(lda.pred$class,Smarket.2005$Direction)
+mean(lda.pred$class==Smarket.2005$Direction)
+```
+
+```{r}
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=10)
+glm.fit <- train(Smarket[, c(-1, -7, -8, -9)], y = Smarket[,9], method = "glm", 
+                preProcess = c("center", "scale"), tuneLength = 10,
+                control=glm.control(maxit=500), trControl = ctrl)
+
+glm.fit
+```
+
+```{r}
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=10)
+lda.fit <- train(Smarket[, c(-1, -7, -8, -9)], y = Smarket[,9], method = "lda", 
+                preProcess = c("center", "scale"), tuneLength = 10,
+                control=glm.control(maxit=500), trControl = ctrl)
+
+lda.fit
+```
+
+```{r}
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=10)
+qda.fit <- train(Smarket[, c(-1, -7, -8, -9)], y = Smarket[,9], method = "qda", 
+                preProcess = c("center", "scale"), tuneLength = 10,
+                control=glm.control(maxit=500), trControl = ctrl)
+
+qda.fit
+```
+
+Para poder hacer una comparativa vamos a calcular el porcentaje de acierto de los 3 modelos:
+
+```{r}
+glm.fit$results$Accuracy
+lda.fit$results$Accuracy
+qda.fit$results$Accuracy
+```
+
+Como podemos ver, el valor de la media es mayor usando lda que usando regresión logística, pero el mejor resultado los obtenemos con qda. Vamos a pintarlo en un gráfico para poder verlo más claramente:
+
+```{r}
+d <- data.frame(x = c("glm", "lda", "qda"), 
+                y = c(glm.fit$results$Accuracy, lda.fit$results$Accuracy, 
+                      qda.fit$results$Accuracy))
+ggplot(d, aes(x, y)) + geom_point() + xlab("Modelo") + ylab("Porcentaje")
+```
+
+### Exercise 2. Using only the information in file clasif_train_alumnos.csv:
+
+#### Compare lda and qda using Wilcoxon.
+
+```{r}
+resultados <- read.csv("clasif_train_alumnos.csv", stringsAsFactors = FALSE)
+tablatst <- cbind(resultados[,2:dim(resultados)[2]])
+colnames(tablatst) <- names(resultados)[2:dim(resultados)[2]] 
+rownames(tablatst) <- resultados[,1]
+
+difs <- (tablatst[,2] - tablatst[,3]) / tablatst[,2]
+wilc_1_2 <- cbind(ifelse (difs<0, abs(difs)+0.1, 0+0.1), 
+                  ifelse (difs>0, abs(difs)+0.1, 0+0.1))
+colnames(wilc_1_2) <- c(colnames(tablatst)[2], colnames(tablatst)[3])
+head(wilc_1_2)
+
+LMvsKNNtst <- wilcox.test(wilc_1_2[,1], wilc_1_2[,2], alternative = "two.sided",
+                          paired=TRUE)
+LMvsKNNtst <- wilcox.test(wilc_1_2[,2], wilc_1_2[,1], alternative = "two.sided",
+                          paired=TRUE)
+values <- list(Rmas = LMvsKNNtst$statistic, Rmenos = LMvsKNNtst$statistic, 
+               pvalue = LMvsKNNtst$p.value)
+values
+```
+
+La hipotesis nula es que los algoritmos son iguales. Hemos obtenido un p-valor de `r (values$pvalue)`, el cual es bastante alto, así que no podemos rechazar la hipotesis nula.
+
+#### Perform a multiple comparison using Friedman.
+
+```{r}
+test_friedman <- friedman.test(as.matrix(tablatst))
+test_friedman
+```
+
+La hipotesis nula es que los algoritmos son iguales. Hemos obtenido un p-valor de `r (test_friedman$p.value)`, el cual es bastante alto, así que no podemos rechazar la hipotesis nula.
+
+#### Using Holm see if there is a winning algorithm (even if Friedman says there is no chance...).
+
+```{r}
+tam <- dim(tablatst)
+groups <- rep(1:tam[2], each=tam[1])
+pairwise.wilcox.test(as.matrix(tablatst), groups, p.adjust = "holm", paired = TRUE)
+```
+
+Como podemos ver, los pvalores obtenidos son bastantes altos, así que tampoco podemos rechazar la hipotesis nula, la cual decía que todos los algoritmos son iguales entre sí.

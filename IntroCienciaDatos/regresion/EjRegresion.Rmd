@@ -1,0 +1,213 @@
+---
+title: "Ejercicios Regresión"
+author: "Néstor Rodriguez Vico - nrv23@correo.ugr.es"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  pdf_document:
+    dev: jpeg
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi=500)
+```
+
+# Parte 1: Reproduzca el estudio para el conjunto de datos California.
+
+Primero leemos los datos. El conjunto de datos leido es el proporcionado en prado.
+
+```{r}
+california <- read.csv("data/california.dat", comment.char="@")
+
+names(california) <- c("Longitude", "Latitude", "HousingMedianAge",
+                       "TotalRooms", "TotalBedrooms", "Population",
+                       "Households", "MedianIncome", "MedianHouseValue")
+
+n <- length(names(california)) - 1
+names(california)[1:n] <- paste ("X", 1:n, sep="")
+names(california)[n+1] <- "Y"
+```
+
+Ahora vamos a visualizar todas las variables entre sí y con respeto a la salida. Para eso podemos usar la función pairs:
+
+```{r}
+pairs(california, upper.panel = NULL)
+```
+
+Vamos a generar un modelo simple, sólo para la viarble X1:
+
+```{r}
+fit1=lm(california$Y ~ california$X1)
+summary(fit1)
+plot(california$Y~california$X1,california, pch='.') 
+abline(fit1,col="red") 
+confint(fit1)
+```
+
+Podemos calcular el error ejecutando:
+
+```{r}
+sqrt(sum(fit1$residuals^2) / (length(fit1$residuals) - 2))
+```
+
+El cual coincide con el obtenido al ejecutar summary(fit1).
+
+Podemos obtener modelos lineales múltiples. Vamos a obtener un modelo en función de las variables X1 y X2:
+
+```{r}
+fit2 <- lm(california$Y ~ california$X1 + california$X2)
+summary(fit2)
+```
+
+Como podemos ver, el error residual es bastante menor que el obtenido al usar sólo una variable. Vamos a generar ahora un modelo usando todas las variables:
+
+```{r}
+fit_all <- lm(california$Y ~ ., data = california)
+summary(fit_all)
+```
+
+Si nos fijamos en el valor de Adjusted R-squared, podemos ver que, usando todas las variables, obtenemos el mayor valor de todos, es decir, estamos frente al mejor modelo de los mostrados en este trabajo hasta ahora. Podemos jugar a seleccionar ciertas variables para ver como se comporta el modelo, como hemos hecho con fit2. También podemos probar a hacer combinaciones lineales más complejas, como por ejemplo:
+
+```{r}
+fit2 <- lm(california$Y ~ california$X1 + I(california$X5 * california$X7))
+summary(fit2)
+```
+
+Como podemos ver, en este caso, el modelo obtenido es bastante malo (tiene un Adjusted R-squared muy bajo).
+
+También podemos pintar un modelo ajustado para ver como se comporta:
+
+```{r}
+fitprueba <- lm(california$Y~california$X1, california)
+plot(california$Y~california$X1, pch='.')
+points(california$X1, fitted(fitprueba), col="red", pch='.')
+```
+
+Una vez tenemos un modelo ajustado, podemos usarlo para predecir nuevos datos:
+
+```{r}
+predicted_y <- predict(fit_all, california)
+```
+
+Una vez hecha la predicción, podemos calcular la raiz del ECM:
+
+```{r}
+sqrt(sum(abs(california$Y - predicted_y)^2) / length(predicted_y))
+```
+
+# Parte 2: Reproduzca el estudio para el conjunto de datos California.
+
+En esta parte vamos a usar K-NN para nuestros experimentos. Un ejemplo de uso sería:
+
+```{r}
+library(kknn)
+fitknn1 <- kknn(california$Y ~ ., california, california)
+```
+
+Podemos obtener información del objeto obtenido con:
+
+```{r}
+names(fitknn1)
+```
+
+Podemos obtener los valores obtenidos para los ejemplos usados como tests ejecutando:
+
+```{r}
+test_values <- fitknn1$fitted.values
+head(test_values)
+```
+
+También podemos dibujar el resultado obtenido:
+
+```{r}
+plot(california$Y ~ california$X1, pch='.')
+points(california$X1, fitknn1$fitted.values, col="green", pch='.')
+```
+
+Al igual que antes, podemos hacer el cáldulo manual de la raíz del ECM (RMSE):
+
+```{r}
+yprime = fitknn1$fitted.values
+sqrt(sum((california$Y - yprime) ^ 2) / length(yprime))
+```
+
+Al igual que hemos hecho inteacciones entre variables para regresión líneal, podemos hacerlo para knn, por ejemplo:
+
+```{r}
+fitknn2 <- kknn(california$Y ~ california$X1 + I(california$X5 * california$X7), 
+                california, california)
+```
+
+Vamos a comparar ahora el valor de RMSE para un modelo usando knn y otra regresión lineal:
+
+```{r}
+y_knn <- fitknn2$fitted.values
+sqrt(sum((california$Y - y_knn)^2) / length(y_knn))
+
+y_lm <- fit2$fitted.values
+sqrt(sum((california$Y - y_lm)^2) / length(y_lm))
+```
+
+Como podemos ver, el valor usando knn es bastante menor (más o menos la mitad) así que podemos decir que, en este caso, knn es mejor que regrsión lineal.
+
+Una práctica habitual y correcta es aplicar K-fold cross-validation:
+
+```{r}
+nombre <- "data/california"
+run_lm_fold <- function(i, x, tt = "test") {
+  file <- paste(x, "-5-", i, "tra.dat", sep="")
+  x_tra <- read.csv(file, comment.char="@") 
+  file <- paste(x, "-5-", i, "tst.dat", sep="")
+  x_tst <- read.csv(file, comment.char="@")
+  In <- length(names(x_tra)) - 1
+  names(x_tra)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tra)[In+1] <- "Y"
+  names(x_tst)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tst)[In+1] <- "Y"
+  if (tt == "train") {
+    test <- x_tra
+  } else { 
+    test <- x_tst
+  }
+  fitMulti=lm(Y~.,x_tra)
+  yprime=predict(fitMulti,test)
+  sum(abs(test$Y-yprime)^2)/length(yprime)
+}
+
+lmMSEtrain <- mean(sapply(1:5, run_lm_fold, nombre, "train"))
+lmMSEtest <- mean(sapply(1:5, run_lm_fold, nombre, "test"))
+```
+
+Vamos a hacer lo mismo para knn:
+
+```{r}
+nombre <- "data/california"
+run_knn_fold <- function(i, x, tt = "test") {
+  file <- paste(x, "-5-", i, "tra.dat", sep="")
+  x_tra <- read.csv(file, comment.char="@") 
+  file <- paste(x, "-5-", i, "tst.dat", sep="")
+  x_tst <- read.csv(file, comment.char="@")
+  In <- length(names(x_tra)) - 1
+  names(x_tra)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tra)[In+1] <- "Y"
+  names(x_tst)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tst)[In+1] <- "Y"
+  if (tt == "train") {
+    test <- x_tra
+  } else { 
+    test <- x_tst
+  }
+  fitMulti=kknn(Y~.,x_tra,test)
+  yprime=fitMulti$fitted.values
+  sum(abs(test$Y-yprime)^2)/length(yprime)
+}
+
+knnMSEtrain <- mean(sapply(1:5, run_knn_fold, nombre, "train"))
+knnMSEtest <- mean(sapply(1:5, run_knn_fold, nombre, "test"))
+
+lmMSEtrain
+knnMSEtrain
+lmMSEtest
+knnMSEtest
+```
+
+Si comparamos lo resultados obtenidos podemos confirmado lo comentado hasta ahora, que knn obtiene mejores resultados que regresión lineal (el valor de MSE es menor).

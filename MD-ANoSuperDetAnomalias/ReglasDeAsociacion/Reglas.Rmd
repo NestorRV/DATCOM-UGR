@@ -1,0 +1,218 @@
+---
+title: "Practica Reglas de Asociación"
+author: "Néstor Rodriguez Vico"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+Carga de librerías:
+
+```{r, warning=FALSE, message=FALSE}
+library(arules)
+library(arulesViz)
+```
+
+```{r}
+data("AdultUCI")
+dim(AdultUCI)
+AdultUCI[1:2,]
+```
+
+Vamos a eliminar dos variables que proporcionan información duplicada:
+
+```{r}
+AdultUCI[["fnlwgt"]] = NULL
+AdultUCI[["education-num"]] = NULL
+```
+
+A continuación, vamos a covertir ciertas variables de numéricas a categóricas:
+
+```{r}
+AdultUCI[[ "age"]] = ordered(cut( AdultUCI[["age"]], c(15,25,45,65,100)),
+                            labels = c ("Young", "Middle-aged", "Senior", "Old"))
+
+AdultUCI[[ "hours-per-week"]] = ordered(cut(AdultUCI[["hours-per-week"]], c(0,25,40,60,168)),
+                                        labels = c("Part-time", "Full-time", "Over-time", "Workaholic"))
+
+AdultUCI[[ "capital-gain"]] = ordered(cut(AdultUCI[["capital-gain"]], 
+                                          c(-Inf, 0,
+                                            median(AdultUCI[["capital-gain"]][AdultUCI[["capital-gain"]]>0]), 
+                                            Inf)), 
+                                      labels = c("None", "Low", "High"))
+AdultUCI[[ "capital-loss"]] = ordered(cut(AdultUCI[["capital-loss"]], 
+                                          c(-Inf, 0, 
+                                            median(AdultUCI[["capital-loss"]][AdultUCI[["capital-loss"]]>0]), 
+                                            Inf)), 
+                                      labels = c("None", "Low", "High"))
+```
+
+Convertimos el data.frame en un conjunto de transacciones con la función as y lo guardamos en la variable Adult:
+
+```{r}
+Adult <- as(AdultUCI, "transactions")
+Adult
+```
+
+Para ver un resumen de la BD hacemos:
+
+```{r}
+summary(Adult)
+```
+
+Tengo ejemplos (19) con 9 items, así que hay valores perdidos, ya que faltan 4 items.
+
+Vamos a probar con otra base de datos:
+
+```{r}
+data(Epub)
+summary(Epub)
+image(Epub)
+```
+
+Para ver gráficamente que items son los más importantes podemos ejecutar itemFrequencyPlot. En este caso usamos mínimo soporte 0.1 y reducimos el tamaño de los título con el parámetro cex.names:
+
+```{r}
+itemFrequencyPlot(Adult, support = 0.1, cex.names=0.8)
+```
+
+Usamos apriori para extraer los itemsets frecuentes con mínimo soporte 0.1. Para ello ponemos en la lista de parámetros target="frequent" :
+
+```{r}
+iAdult <- apriori(Adult, parameter = list(support = 0.1, target="frequent"))
+iAdult <- sort(iAdult, by="support") # Los ordenamos por el valor del soporte
+inspect(head(iAdult, n=10)) # Inspeccionamos los 10 primeros
+```
+
+Los itemsets formados por un único item tienen más soporte. Conforme vamos añadiendo más items, se deben cumpler más condiciones y por eso tiene menos soporte.
+
+Son muchos itemsets frecuentes, podemos quedarnos solo con los itemsets maximales. La función is.maximal devuelve un vector lógico indicando que itemsets es maximal. En el ejemplo, de iAdult nos quedamos solo con los maximales y después mostramos los 6 primeros ordenados por su valor de soporte.
+
+```{r}
+imaxAdult <- iAdult[is.maximal(iAdult)]
+inspect(head(sort(imaxAdult, by="support")))
+```
+
+También podemos extraer los itemsets cerrados con la función is.closed, la cual devuelve un vector lógico indicando que itemsets es cerrado. En el ejemplo, de iAdult nos quedamos solo con los cerrados y después mostramos los 6 primeros ordenados por su valor de soporte.
+
+```{r}
+icloAdult <- iAdult[is.closed(iAdult)]
+inspect(head(sort(icloAdult, by="support")))
+```
+
+Podemos pintar un gráfico de barras para ver la cantidad de de itemsets frecuentes, cerrados y maximales que se han generado.
+
+```{r}
+barplot(c(frequent=length(iAdult), closed=length(icloAdult), 
+          maximal=length(imaxAdult)), ylab="count", xlab="itemsets")
+```
+
+Usamos A priori para extraer las reglas con mínimo soporte 0.1 y confianza 0.8. Tambíen indicamos que al menos la longitud de las reglas sea 2 (antecedente+consecuente)):
+
+```{r}
+rules <- apriori(Adult, parameter = 
+                   list(support = 0.1, confidence = 0.8, minlen = 2))
+
+summary(rules)
+```
+
+Podemos utilizar la función inspect para ver las reglas (lhs es el antecedente y rhs el consecuente de la regla) y sus valores para las medidas soporte, confianza y lift. También podemos ver solo los valores de las medidas de calidad utilizando la función quality.
+
+```{r}
+inspect(head(rules))
+```
+
+```{r}
+quality(head(rules))
+```
+
+Ordenar las reglas por el campo que más nos interese. Por ejemplo, ordenaras por el valor de la confianza
+
+```{r}
+rulesSorted = sort(rules, by = "confidence")
+inspect(head(rulesSorted))
+```
+
+Todas las reglas tienen en el consecuente que el sexo es un hombre y como antecedente que es el marido. Tenemos que tener cuidado, porque las reglas son interesantes (porque cumple lo que dicen) pero no puede que no sean útiles para el cliente.
+
+Seleccionar un subconjunto de reglas que cumplan una condición. Por ejemplo, seleccionamos las reglas que tenga lift > 1.2 y que en el antecedente de la regla tengan el itemset race=White
+
+```{r}
+rulesRaceWhite <- subset(rules, subset = lhs %in% "race=White" & lift > 1.2)
+inspect(head(rulesRaceWhite))
+```
+
+Cosa rara: hijo único y raza blanca -> No se ha casado
+
+Eliminar las reglas redundantes:
+
+```{r}
+# subset: ver si una regla está dentro de la otra
+# matriz de booleanos todos con todos
+# matriz simétrica con respecto a su diagonal
+subsetMatrix <- is.subset(rulesSorted, rulesSorted)
+# eliminamos la mitad inferior
+subsetMatrix[lower.tri(subsetMatrix, diag=TRUE)] <- FALSE
+# cuantas columnas una regla es subconjunto de otra y las columnas
+# en las que sale mayor que uno, hay alguna redundante
+redundant <- colSums(subsetMatrix, na.rm=TRUE) >= 1
+# remove redundant rules
+rulesPruned <- rulesSorted[!redundant]
+inspect(head(rulesPruned))
+```
+
+También podemos calcular para itemsets o para reglas otras medidas de calidad utilizando la función interestMeasure. Ejecutar ?? interestMeasure para ver todas las medidas que se pueden calcular.
+
+Podemos calcular estas medidas para nuestras reglas podadas y añadirselas a la sección quality para que los valores de las medidas nuevas salgan también cuando inspeccionamos las reglas:
+
+```{r}
+mInteres <- interestMeasure(rulesPruned, 
+                            measure=c("hyperConfidence", "leverage" ,"phi", "gini"), 
+                            transactions=Adult)
+quality(rulesPruned) <- cbind(quality(rulesPruned), mInteres)
+inspect(head(sort(rulesPruned, by="phi")))
+```
+
+Utilizar la función plot para representar las reglas en función de las medidas de calidad:
+
+```{r}
+plot(rulesPruned)
+```
+
+Que reglas estudiaríamos? Reglas con alta confianza nos pueden estar engañando. Soporte: queremos reglas con un soporte alto? No, son cosas comunes. Poco soporte? No, reglas más específicas. Queremos un soporte entre 0.3 y 0.5. Ojo con la confianza, está entre 0.8 y 1. Las que mas nos interesan son las que tienen un soporte de 0.4 y una confianza de 1 (hay 2) y la que tiene una confianza de 0.9 (en el centro del gráfico).
+
+Podemos modificar el tipo de gráfico generado cambiando el parámetro método de la función plot. Además, se puede modificar el gráfico cambiando los parámetros del tipo de gráfico seleccionado:
+
+```{r}
+plot(rulesPruned[1:6], method="graph")
+#plot(rulesPruned[1:6], method="graph", engine="interactive")
+```
+
+```{r}
+plot(rulesPruned, method="grouped")
+```
+
+```{r}
+plot(rulesPruned[1:6], method="paracoord", reorder=TRUE)
+```
+
+Eje vertical: todos los antecedente. Eje horizontal: en que posición del antecedente está. El último es el consecuente (rhs).
+
+
+Las podemos guardar en texto plano usando la función write. En este ejemplo las guardamos en un fichero llamado data.csv, usamos como separado “,” y no le ponemos ningún nombre a las columnas:
+
+```{r}
+write(rulesPruned, file="reglas.csv", sep = ",")
+```
+
+También las podemos guardar en formato PMML. Para ello tendremos que tener instalado el paquete pmml
+
+```{r}
+library(pmml)
+write.PMML(rulesPruned, file="reglas.pmml")
+```
+
+Si las reglas estan guardadas en fichero en formato PMML podemos posteriormente volver a leerlas con la funcion read.PMML:
+
+```{r}
+reglasPMML = read.PMML("reglas.pmml")
+```
