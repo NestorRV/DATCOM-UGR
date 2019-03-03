@@ -1,0 +1,1064 @@
+---
+title: "Ripper"
+author: "Néstor Rodriguez Vico - nrv23@correo.ugr.es"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+
+library(Amelia)
+library(Boruta)
+library(caret)
+library(discretization)
+library(dplyr)
+library(FSelector)
+library(factoextra)
+library(funModeling)
+library(ICS)
+library(ICSOutlier)
+library(mice)
+library(missForest)
+library(mvoutlier)
+library(NoiseFiltersR)
+library(outliers)
+library(robCompositions)
+library(robustbase)
+library(R.utils)
+library(RWeka)
+```
+
+## Lectura de datos
+
+```{r}
+train <- read.csv("data/train.csv", na.strings = c(" ", "NA", "?"))
+train$C <- as.factor(train$C)
+test <- read.csv("data/test.csv", na.strings = c(" ", "NA", "?"))
+```
+
+## Funciones auxiliares
+
+He creado una función para evaluar un modelo usando la función *RWeka::evaluate_Weka_classifier*. También he creado una función que, dado un conjunto de datos y el conjunto de test, calcula un modelo y obtiene su porcentaje de acierto y, si se indica, predice el conjunto de test y genera el fichero que se entrega en kaggle, poniendole un nombre lo suficientemente descriptivo como para recornocerlo en un futuro. El porcentaje de acierto se realizar haciendo validación cruzada con cinco folds cinco veces.
+
+```{r}
+eval.model <- function(model, i) {
+  res <- RWeka::evaluate_Weka_classifier(model, numFolds = 5, seed = i)
+  return(as.data.frame(t(res$details))$pctCorrect)
+}
+
+kaggle.file <- function(data, test, write = T) {
+  set.seed(1)
+  model <- RWeka::JRip(C ~ ., data = data, na.action = "na.pass")
+  
+  pcts <- lapply(1:5, eval.model, model = model)
+  pct.correct <- mean(unlist(pcts))
+  cat(paste(deparse(substitute(data)), " -> ", pct.correct, "\n", sep =""))
+  
+  if (write) {
+    prediction <- as.numeric(predict(model, test)) - 1
+    res <- as.data.frame(cbind(Id = 1:nrow(test), Prediction = prediction))
+  
+    fileName <- paste("./data/results/ripper/", deparse(substitute(data)), "-", 
+                      round(as.numeric(Sys.time()), 0), "-", gsub("\\.", ",", pct.correct), 
+                      ".csv", sep ="")
+  
+    write.csv(res, fileName, row.names = FALSE, quote = FALSE)
+  }
+  
+  return(pct.correct)
+}
+```
+
+Veamos como es el conjunto de train sin realizar ningún preprocesamiento:
+
+```{r}
+train.pct <- kaggle.file(train, test)
+```
+
+La metodología de trabajo va a ser obtener un conjunto de datos preprocesado y, con este nuevo conjunto, llamar a la función *kaggle.file* para medir su rendimiento.
+
+## Detección de valores perdidos
+
+Veamos si tenemos datos perdidos:
+
+```{r}
+mice::ncc(train)
+mice::nic(train)
+```
+
+Hay `r mice::nic(train)` instancias con valores perdidos. Veamos el patrón de los datos perdidos:
+
+```{r}
+mice::md.pattern(x=train)
+```
+
+## Imputación de valores perdidos
+
+A la hora de realizar imputación de valores perdidos, podemos usar distintas técnicas y distintos paquetes. En esta sección vamos a probar los paquetes *mice*, *Amelia*, *missForest* y *robCompositions*.
+
+### mice
+
+El paquete *mice* ofrece muchos métodos de imputación. En mi caso, he probado todos los métodos posibles a excepción de:
+
+* 2l.bin, 2l.lmer, 2l.pan, 2l.norm, 2lonly.mean, 2lonly.norm, 2lonly.pmm, passive, pmm, quadratic: dan error en el conjunto de datos.
+
+* jomoImpute: nunca llega a terminar.
+
+* lda, logreg, logreg.boot, polr, polyreg: son métodos para regresión.
+
+* panImpute: es un método de clustering en el cual debemos indicar a que cluster pertenece cada instancia.
+
+Vamos a pedir sólo una imputación para reducir el tiempo de ejecución y reducir el espacio de búsqueda.
+
+```{r}
+Sys.time()
+
+set.seed(1)
+mice.cart <- mice::complete(mice::mice(train, m = 1, method = "cart", printFlag = F))
+mice::nic(mice.cart)
+
+set.seed(1)
+mice.mean <- mice::complete(mice::mice(train, m = 1, method = "mean", printFlag = F))
+mice::nic(mice.mean)
+
+set.seed(1)
+mice.midastouch <- mice::complete(mice::mice(train, m = 1, method = "midastouch", printFlag = F))
+mice::nic(mice.midastouch)
+
+set.seed(1)
+mice.norm <- mice::complete(mice::mice(train, m = 1, method = "norm", printFlag = F))
+mice::nic(mice.norm)
+
+set.seed(1)
+mice.norm.boot <- mice::complete(mice::mice(train, m = 1, method = "norm.boot", printFlag = F))
+mice::nic(mice.norm.boot)
+
+set.seed(1)
+mice.norm.nob <- mice::complete(mice::mice(train, m = 1, method = "norm.nob", printFlag = F))
+mice::nic(mice.norm.nob)
+
+set.seed(1)
+mice.norm.predict <- mice::complete(mice::mice(train, m = 1, method = "norm.predict", printFlag = F))
+mice::nic(mice.norm.predict)
+
+set.seed(1)
+mice.pmm <- mice::complete(mice::mice(train, m = 1, method = "pmm", printFlag = F))
+mice::nic(mice.pmm)
+
+set.seed(1)
+mice.rf <- mice::complete(mice::mice(train, m = 1, method = "rf", printFlag = F))
+mice::nic(mice.rf)
+
+set.seed(1)
+mice.ri <- mice::complete(mice::mice(train, m = 1, method = "ri", printFlag = F))
+mice::nic(mice.ri)
+
+set.seed(1)
+mice.sample <- mice::complete(mice::mice(train, m = 1, method = "sample", printFlag = F))
+mice::nic(mice.sample)
+
+Sys.time()
+```
+
+Como podemos ver, *mice* no imputa todos los valores. Esto se debe a que *mice* ignora las variables altamente correladas y no las procesa.
+
+### Amelia
+
+```{r}
+Sys.time()
+
+set.seed(1)
+amelia <- Amelia::amelia(train, m = 1, parallel = "multicore", noms = "C")$imputations$imp1
+mice::nic(amelia)
+
+Sys.time()
+```
+
+En este caso podemos ver que *Amelia* si ha imputado todos los valores perdidos.
+
+### missForest
+
+```{r}
+Sys.time()
+
+set.seed(1)
+missForest <- missForest::missForest(train, maxiter = 1, ntree = 5)$ximp
+mice::nic(missForest)
+
+Sys.time()
+```
+
+En este caso podemos ver que *missForest* si ha imputado todos los valores perdidos.
+
+### robCompositions
+
+Este paquete no lo he podido probar debido a que nos da el error *Error in log(unclass(x)[is.finite(x) & x > 0]) : non-numeric argument to mathematical function*.
+
+```{r}
+# Sys.time()
+
+# set.seed(1)
+# robCompositions <- robCompositions::impKNNa(train, primitive=TRUE)
+# mice::nic(robCompositions)
+
+# Sys.time()
+```
+
+### Resultados
+
+Una vez tenemos todas las imputaciones calculadas, obtenemos su porcentaje de aceirto:
+
+```{r}
+Sys.time()
+
+mice.cart.pct <- kaggle.file(mice.cart, test)
+mice.mean.pct <- kaggle.file(mice.mean, test)
+mice.midastouch.pct <- kaggle.file(mice.midastouch, test)
+mice.norm.pct <- kaggle.file(mice.norm, test)
+mice.norm.boot.pct <- kaggle.file(mice.norm.boot, test)
+mice.norm.nob.pct <- kaggle.file(mice.norm.nob, test)
+mice.norm.predict.pct <- kaggle.file(mice.norm.predict, test)
+mice.pmm.pct <- kaggle.file(mice.pmm, test)
+mice.rf.pct <- kaggle.file(mice.rf, test)
+mice.ri.pct <- kaggle.file(mice.ri, test)
+mice.sample.pct <- kaggle.file(mice.sample, test)
+amelia.pct <- kaggle.file(amelia, test)
+missForest.pct <- kaggle.file(missForest, test)
+
+Sys.time()
+```
+
+Veamos los resutlados ordenados, para ver que imputación nos proporciona el mejor resultado:
+
+```{r}
+imp.pcts <- list(mice.cart = mice.cart.pct,
+                 mice.mean = mice.mean.pct,
+                 mice.midastouch = mice.midastouch.pct,
+                 mice.norm = mice.norm.pct,
+                 mice.norm.boot = mice.norm.boot.pct,
+                 mice.norm.nob = mice.norm.nob.pct,
+                 mice.norm.predict = mice.norm.predict.pct,
+                 mice.pmm = mice.pmm.pct,
+                 mice.rf = mice.rf.pct,
+                 mice.ri = mice.ri.pct,
+                 mice.sample = mice.sample.pct,
+                 amelia = amelia.pct,
+                 missForest = missForest.pct)
+
+names(imp.pcts[order(unlist(imp.pcts), decreasing=TRUE)])
+```
+
+Como podemos ver, el mejor resultado lo hemos obtenido con el método *norm* del paquete *mice*, el cual obtiene un porcentaje de un `r mice.norm.pct - train.pct`% mejor que usando sólo el conjunto de train original. 
+
+El conjunto de datos que tenemos representa nuestro conjunto de entrenamiento, el conjunto de instancias públicas de *kaggle* representa el conjunto de validación y el conjunto de instancias privadas de *kaggle* es el conjunto de test. Es por eso que, a la hora de elegir que modelo es mejor, debemos basarnos en los porcentajes de *kaggle* y no en nuestros porcentajes locales, aunque estos últimos pueden guiarnos a la hora de guiar la búsqueda. Para sesgar el espacio de búsqueda, vamos a seleccionar el mejor método de imputación del paquete *mice* para tomarlo como punto de partida:
+
+```{r}
+kaggle.imp.pcts <- list(mice.cart = 0.88157,
+                        mice.mean = 0.88871,
+                        mice.midastouch = 0.88871,
+                        mice.norm = 0.87748,
+                        mice.norm.boot = 0.88667,
+                        mice.norm.nob = 0.88922,
+                        mice.norm.predict = 0.88412,
+                        mice.pmm = 0.88208,
+                        mice.rf = 0.88157,
+                        mice.ri = 0.87748,
+                        mice.sample = 0.89841)
+
+names(kaggle.imp.pcts[order(unlist(kaggle.imp.pcts), decreasing=TRUE)])
+```
+
+Ahora podemos ver que la mejor imputación es la del método *sample* del paquete *mice*.
+
+## Datos anómalos
+
+A continuación vamos a realizar un estudio de datos anómalos. Veamos primero si hay outliers realizando un boxplot:
+
+```{r}
+train.boxplot <- boxplot(train[,1:50])
+```
+
+Cómo podemos ver, hay outliers. Veamos cuantos valores, que no instancias, son outliers:
+
+```{r}
+train.outliers <- train.boxplot$out
+length(train.outliers)
+```
+
+Cómo podemos ver, hay `r length(train.outliers)` valores outliers. Vamos a comparar dicho valor con el número total de valores:
+
+```{r}
+length(train.outliers)
+length(unlist(train[,1:50]))
+length(train.outliers) * 100 / length(unlist(train[,1:50]))
+```
+
+El `r length(train.outliers) * 100 / length(unlist(train[,1:50]))`% de los valores son outliers. Si usamos el paquete *outliers*, podemos obtener los valores más outliers de cada variable:
+
+```{r}
+outliers::outlier(train[,1:50])
+```
+
+Podemos obtener los outliers multivariate con el paquete *mvoutlier*:
+
+```{r}
+mvoutlier::uni.plot(train[,1:50])
+```
+
+Como vemos, este paquete esta preparado para trabajar sólo con 10 dimensiones como mucho. Podemos probar otros métdocos, como calcular nosotros a mano el *Minimum Covariance Determinant (MCD) estimator*. Para ello, usaremos el paquete *robustbase*:
+
+```{r}
+train.mcd <- robustbase::covMcd(train[,1:50])
+train.mean.mcd <- train.mcd$raw.center
+train.cov.mcd <- train.mcd$raw.cov
+train.cov.mcd.inv <- solve(train.cov.mcd)
+```
+
+El error que nos da es se debe a que la matriz no es invertible. Probemos otro método de detección de outliers multivariate, el ofrecido por el paquete *ICS*:
+
+```{r}
+train.ics2 <- ICS::ics2(train[,1:50], S1 = tM, S2 = MeanCov)
+```
+
+Sobre el conjunto de datos original no podemos aplicarlo ya que contiene valores NA. Vemos que sucede si lo aplicamos sobre un conjunto de datos sin NA, como el obtenido tras aplicar *Amelia*:
+
+```{r}
+amelia.ics2 <- ICS::ics2(amelia[,1:50], S1 = tM, S2 = MeanCov)
+R.utils::withTimeout(ICSOutlier::ics.outlier(amelia.ics2), timeout = 10, onTimeout = "silent")
+```
+
+He puesto un timeout de 10 segundos ya que este método no termina. Si este método no termina para un conjunto de datos de este tamaño, en un caso real mucho menos. Aún así, he considerado interesante comentarlo y por eso lo he dejado en esta documentación.
+
+## Transformationes de los datos
+
+En esta sección hemos visto que se pueden hacer centrados y escalados. En e caso de Ripper, esto no se aplica ya que no se usan distancias.
+
+## Aclaración
+
+Desde este momento en adelante, todos las técnicas se van a aplicar sobre 4 conjuntos de datos, *train* (el original), *amelia* (el imputado con *Amelia*), *missForest* (el imputado con *missForest*) y *mice.sample*  (el imputado con el método *sample* del paquete *mice*). Esto se hace para ver como se comportan las tres distintas imputaciones y el conjunto de datos original.
+
+## Discretización
+
+En el manual de proprocesamiento hemos visto que hay 3 métodos distintos para realizar la discretización, *CAIM*, *CACC* y *AMEVA*. El problema de estos métodos es que son muy lentos. He dejado el código comentado para ver como se harñia si disponemos de un conjunto de datos más pequeño:
+
+```{r}
+# Sys.time()
+
+# CAIM
+# caim.amelia <- discretization::disc.Topdown(amelia, method=1)$Disc.data
+# caim.train <- discretization::disc.Topdown(train, method=1)$Disc.data
+# caim.missForest <- discretization::disc.Topdown(missForest, method=1)$Disc.data
+# caim.mice.sample <- discretization::disc.Topdown(mice.sample, method=1)$Disc.data
+# caim.test <- discretization::disc.Topdown(test, method=1)$Disc.data
+# caim.amelia.pct <- kaggle.file(caim.amelia, caim.test)
+# caim.train.pct <- kaggle.file(caim.train, caim.test)
+# caim.missForest.pct <- kaggle.file(caim.missForest, caim.test)
+# caim.mice.sample.pct <- kaggle.file(caim.mice.sample, caim.test)
+
+# CACC
+# cacc.amelia <- discretization::disc.Topdown(amelia, method=2)$Disc.data
+# cacc.train <- discretization::disc.Topdown(train, method=2)$Disc.data
+# cacc.missForest <- discretization::disc.Topdown(missForest, method=2)$Disc.data
+# cacc.mice.sample <- discretization::disc.Topdown(mice.sample, method=2)$Disc.data
+# cacc.test <- discretization::disc.Topdown(test, method=2)$Disc.data
+# cacc.amelia.pct <- kaggle.file(cacc.amelia, cacc.test)
+# cacc.train.pct <- kaggle.file(cacc.train, cacc.test)
+# cacc.missForest.pct <- kaggle.file(cacc.missForest, cacc.test)
+# cacc.mice.sample.pct <- kaggle.file(cacc.mice.sample, cacc.test)
+
+# AMEVA
+# ameva.amelia <- discretization::disc.Topdown(amelia, method=3)$Disc.data
+# ameva.train <- discretization::disc.Topdown(train, method=3)$Disc.data
+# ameva.missForest <- discretization::disc.Topdown(missForest, method=3)$Disc.data
+# ameva.mice.sample <- discretization::disc.Topdown(mice.sample, method=3)$Disc.data
+# ameva.test <- discretization::disc.Topdown(test, method=2)$Disc.data
+# ameva.amelia.pct <- kaggle.file(ameva.amelia, ameva.test)
+# ameva.train.pct <- kaggle.file(ameva.train, ameva.test)
+# ameva.missForest.pct <- kaggle.file(ameva.missForest, ameva.test)
+# ameva.mice.sample.pct <- kaggle.file(ameva.mice.sample, ameva.test)
+
+# Sys.time()
+```
+
+El paquete *funModeling* nos permite hacer discretización de una forma más rápida.
+
+```{r}
+Sys.time()
+
+bins.train <- funModeling::discretize_get_bins(train)
+bins.amelia <- funModeling::discretize_get_bins(amelia)
+bins.missForest <- funModeling::discretize_get_bins(missForest)
+bins.mice.sample <- funModeling::discretize_get_bins(mice.sample)
+bins.test <- funModeling::discretize_get_bins(test)
+
+discretized.train <- funModeling::discretize_df(train, bins.train)
+discretized.amelia <- funModeling::discretize_df(amelia, bins.amelia)
+discretized.missForest <- funModeling::discretize_df(missForest, bins.missForest)
+discretized.mice.sample <- funModeling::discretize_df(missForest, bins.mice.sample)
+discretized.test <- funModeling::discretize_df(test, bins.test)
+
+discretized.train.pct <- kaggle.file(discretized.train, discretized.test)
+discretized.amelia.pct <- kaggle.file(discretized.amelia, discretized.test)
+discretized.missForest.pct <- kaggle.file(discretized.missForest, discretized.test)
+discretized.mice.sample.pct <- kaggle.file(discretized.mice.sample, discretized.test)
+
+Sys.time()
+```
+
+## Selección de características
+
+Dentro del apartado de selección de características, podemos encontrar distintos paquetes.
+
+### FSelector
+
+*FSelector* nos proporciona distintos métodos de selección. Vamos a probarlos todos. Para tener una reducción grande pero controlada, en todas las pruebas voy a coger la mitad de las variables, así reducimos la dimensionalidad a la mitad pero mantenemos un buen número de variables. 
+
+#### chi.squared
+
+```{r}
+Sys.time()
+
+w.chi.sq.train <- FSelector::chi.squared(C ~ ., train)
+w.chi.sq.amelia <- FSelector::chi.squared(C ~ ., amelia)
+w.chi.sq.missForest <- FSelector::chi.squared(C ~ ., missForest)
+w.chi.sq.mice.sample <- FSelector::chi.squared(C ~ ., mice.sample)
+
+attrs.chi.sq.train <- FSelector::cutoff.k.percent(w.chi.sq.train, .5)
+attrs.chi.sq.amelia <- FSelector::cutoff.k.percent(w.chi.sq.amelia, .5)
+attrs.chi.sq.missForest <- FSelector::cutoff.k.percent(w.chi.sq.missForest, .5)
+attrs.chi.sq.mice.sample <- FSelector::cutoff.k.percent(w.chi.sq.mice.sample, .5)
+
+chi.sq.train <- cbind(train[, attrs.chi.sq.train], C = train$C)
+chi.sq.amelia <- cbind(amelia[, attrs.chi.sq.amelia], C = amelia$C)
+chi.sq.missForest <- cbind(missForest[, attrs.chi.sq.missForest], C = missForest$C)
+chi.sq.mice.sample <- cbind(mice.sample[, attrs.chi.sq.mice.sample], C = mice.sample$C)
+
+chi.sq.train.pct <- kaggle.file(chi.sq.train, test[, attrs.chi.sq.train])
+chi.sq.amelia.pct <- kaggle.file(chi.sq.amelia, test[, attrs.chi.sq.amelia])
+chi.sq.missForest.pct <- kaggle.file(chi.sq.missForest, test[, attrs.chi.sq.missForest])
+chi.sq.mice.sample.pct <- kaggle.file(chi.sq.mice.sample, test[, attrs.chi.sq.mice.sample])
+
+Sys.time()
+```
+
+#### linear.correlation
+
+```{r}
+Sys.time()
+
+w.lc.train <- FSelector::linear.correlation(C ~ ., cbind(train[,1:50], C = as.numeric(train$C) - 1))
+w.lc.amelia <- FSelector::linear.correlation(C ~ ., cbind(amelia[,1:50], C = as.numeric(amelia$C) - 1))
+w.lc.missForest <- FSelector::linear.correlation(C ~ ., cbind(missForest[,1:50], C = as.numeric(missForest$C) - 1))
+w.lc.mice.sample <- FSelector::linear.correlation(C ~ ., cbind(mice.sample[,1:50], C = as.numeric(mice.sample$C) - 1))
+
+attrs.lc.train <- FSelector::cutoff.k.percent(w.lc.train, .5)
+attrs.lc.amelia <- FSelector::cutoff.k.percent(w.lc.amelia, .5)
+attrs.lc.missForest <- FSelector::cutoff.k.percent(w.lc.missForest, .5)
+attrs.lc.mice.sample <- FSelector::cutoff.k.percent(w.lc.mice.sample, .5)
+
+lc.train <- cbind(train[, attrs.lc.train], C = train$C)
+lc.amelia <- cbind(amelia[, attrs.lc.amelia], C = amelia$C)
+lc.missForest <- cbind(missForest[, attrs.lc.missForest], C = missForest$C)
+lc.mice.sample <- cbind(mice.sample[, attrs.lc.mice.sample], C = mice.sample$C)
+
+lc.train.pct <- kaggle.file(lc.train, test[, attrs.lc.train])
+lc.amelia.pct <- kaggle.file(lc.amelia, test[, attrs.lc.amelia])
+lc.missForest.pct <- kaggle.file(lc.missForest, test[, attrs.lc.missForest])
+lc.mice.sample.pct <- kaggle.file(lc.mice.sample, test[, attrs.lc.mice.sample])
+
+Sys.time()
+```
+
+#### entropy.based
+
+##### information.gain
+
+```{r}
+Sys.time()
+
+w.ig.train <- FSelector::information.gain(C ~ ., train)
+w.ig.amelia <- FSelector::information.gain(C ~ ., amelia)
+w.ig.missForest <- FSelector::information.gain(C ~ ., missForest)
+w.ig.mice.sample <- FSelector::information.gain(C ~ ., mice.sample)
+
+attrs.ig.train <- FSelector::cutoff.k.percent(w.ig.train, .5)
+attrs.ig.amelia <- FSelector::cutoff.k.percent(w.ig.amelia, .5)
+attrs.ig.missForest <- FSelector::cutoff.k.percent(w.ig.missForest, .5)
+attrs.ig.mice.sample <- FSelector::cutoff.k.percent(w.ig.mice.sample, .5)
+
+ig.train <- cbind(train[, attrs.ig.train], C = train$C)
+ig.amelia <- cbind(amelia[, attrs.ig.amelia], C = amelia$C)
+ig.missForest <- cbind(missForest[, attrs.ig.missForest], C = missForest$C)
+ig.mice.sample <- cbind(mice.sample[, attrs.ig.mice.sample], C = mice.sample$C)
+
+ig.train.pct <- kaggle.file(ig.train, test[, attrs.ig.train])
+ig.amelia.pct <- kaggle.file(ig.amelia, test[, attrs.ig.amelia])
+ig.missForest.pct <- kaggle.file(ig.missForest, test[, attrs.ig.missForest])
+ig.mice.sample.pct <- kaggle.file(ig.mice.sample, test[, attrs.ig.mice.sample])
+
+Sys.time()
+```
+
+##### gain.ratio
+
+```{r}
+Sys.time()
+
+w.gr.train <- FSelector::gain.ratio(C ~ ., train)
+w.gr.amelia <- FSelector::gain.ratio(C ~ ., amelia)
+w.gr.missForest <- FSelector::gain.ratio(C ~ ., missForest)
+w.gr.mice.sample <- FSelector::gain.ratio(C ~ ., mice.sample)
+
+attrs.gr.train <- FSelector::cutoff.k.percent(w.gr.train, .5)
+attrs.gr.amelia <- FSelector::cutoff.k.percent(w.gr.amelia, .5)
+attrs.gr.missForest <- FSelector::cutoff.k.percent(w.gr.missForest, .5)
+attrs.gr.mice.sample <- FSelector::cutoff.k.percent(w.gr.mice.sample, .5)
+
+gr.train <- cbind(train[, attrs.gr.train], C = train$C)
+gr.amelia <- cbind(amelia[, attrs.gr.amelia], C = amelia$C)
+gr.missForest <- cbind(missForest[, attrs.gr.missForest], C = missForest$C)
+gr.mice.sample <- cbind(mice.sample[, attrs.gr.mice.sample], C = mice.sample$C)
+
+gr.train.pct <- kaggle.file(gr.train, test[, attrs.gr.train])
+gr.amelia.pct <- kaggle.file(gr.amelia, test[, attrs.gr.amelia])
+gr.missForest.pct <- kaggle.file(gr.missForest, test[, attrs.gr.missForest])
+gr.mice.sample.pct <- kaggle.file(gr.mice.sample, test[, attrs.gr.mice.sample])
+
+Sys.time()
+```
+
+##### symmetrical.uncertainty
+
+```{r}
+Sys.time()
+
+w.su.train <- FSelector::symmetrical.uncertainty(C ~ ., train)
+w.su.amelia <- FSelector::symmetrical.uncertainty(C ~ ., amelia)
+w.su.missForest <- FSelector::symmetrical.uncertainty(C ~ ., missForest)
+w.su.mice.sample <- FSelector::symmetrical.uncertainty(C ~ ., mice.sample)
+
+attrs.su.train <- FSelector::cutoff.k.percent(w.su.train, .5)
+attrs.su.amelia <- FSelector::cutoff.k.percent(w.su.amelia, .5)
+attrs.su.missForest <- FSelector::cutoff.k.percent(w.su.missForest, .5)
+attrs.su.mice.sample <- FSelector::cutoff.k.percent(w.su.mice.sample, .5)
+
+su.train <- cbind(train[, attrs.su.train], C = train$C)
+su.amelia <- cbind(amelia[, attrs.su.amelia], C = amelia$C)
+su.missForest <- cbind(missForest[, attrs.su.missForest], C = missForest$C)
+su.mice.sample <- cbind(mice.sample[, attrs.su.mice.sample], C = mice.sample$C)
+
+su.train.pct <- kaggle.file(su.train, test[, attrs.su.train])
+su.amelia.pct <- kaggle.file(su.amelia, test[, attrs.su.amelia])
+su.missForest.pct <- kaggle.file(su.missForest, test[, attrs.su.missForest])
+su.mice.sample.pct <- kaggle.file(su.mice.sample, test[, attrs.su.mice.sample])
+
+Sys.time()
+```
+
+#### oneR
+
+```{r}
+Sys.time()
+
+w.oneR.train <- FSelector::oneR(C ~ ., train)
+w.oneR.amelia <- FSelector::oneR(C ~ ., amelia)
+w.oneR.missForest <- FSelector::oneR(C ~ ., missForest)
+w.oneR.mice.sample <- FSelector::oneR(C ~ ., mice.sample)
+
+attrs.oneR.train <- FSelector::cutoff.k.percent(w.oneR.train, .5)
+attrs.oneR.amelia <- FSelector::cutoff.k.percent(w.oneR.amelia, .5)
+attrs.oneR.missForest <- FSelector::cutoff.k.percent(w.oneR.missForest, .5)
+attrs.oneR.mice.sample <- FSelector::cutoff.k.percent(w.oneR.mice.sample, .5)
+
+oneR.train <- cbind(train[, attrs.oneR.train], C = train$C)
+oneR.amelia <- cbind(amelia[, attrs.oneR.amelia], C = amelia$C)
+oneR.missForest <- cbind(missForest[, attrs.oneR.missForest], C = missForest$C)
+oneR.mice.sample <- cbind(mice.sample[, attrs.oneR.mice.sample], C = mice.sample$C)
+
+oneR.train.pct <- kaggle.file(oneR.train, test[, attrs.oneR.train])
+oneR.amelia.pct <- kaggle.file(oneR.amelia, test[, attrs.oneR.amelia])
+oneR.missForest.pct <- kaggle.file(oneR.missForest, test[, attrs.oneR.missForest])
+oneR.mice.sample.pct <- kaggle.file(oneR.mice.sample, test[, attrs.oneR.mice.sample])
+
+Sys.time()
+```
+
+#### relief
+
+```{r}
+Sys.time()
+
+w.relief.train <- FSelector::relief(C ~ ., train)
+w.relief.amelia <- FSelector::relief(C ~ ., amelia)
+w.relief.missForest <- FSelector::relief(C ~ ., missForest)
+w.relief.mice.sample <- FSelector::relief(C ~ ., mice.sample)
+
+attrs.relief.train <- FSelector::cutoff.k.percent(w.relief.train, .5)
+attrs.relief.amelia <- FSelector::cutoff.k.percent(w.relief.amelia, .5)
+attrs.relief.missForest <- FSelector::cutoff.k.percent(w.relief.missForest, .5)
+attrs.relief.mice.sample <- FSelector::cutoff.k.percent(w.relief.mice.sample, .5)
+
+relief.train <- cbind(train[, attrs.relief.train], C = train$C)
+relief.amelia <- cbind(amelia[, attrs.relief.amelia], C = amelia$C)
+relief.missForest <- cbind(missForest[, attrs.relief.missForest], C = missForest$C)
+relief.mice.sample <- cbind(mice.sample[, attrs.relief.mice.sample], C = mice.sample$C)
+
+relief.train.pct <- kaggle.file(relief.train, test[, attrs.relief.train])
+relief.amelia.pct <- kaggle.file(relief.amelia, test[, attrs.relief.amelia])
+relief.missForest.pct <- kaggle.file(relief.missForest, test[, attrs.relief.missForest])
+relief.mice.sample.pct <- kaggle.file(relief.mice.sample, test[, attrs.relief.mice.sample])
+
+Sys.time()
+```
+
+#### wrapper
+
+Los métodos *wrapper* permiten definir una función de evaluación para guiar los métodos de búsqueda.
+
+```{r}
+evaluator <- function(subset, data = train, k = 5){
+    splits <- runif(nrow(data))
+    results <- sapply(1:k,function(i){
+        test.idx <- (splits >= ((i - 1) / k) & (splits < (i / k)))
+        train.idx <- !test.idx
+        test <- data[test.idx, , drop = FALSE]
+        train <- data[train.idx, , drop=FALSE]
+        tree <- rpart::rpart(FSelector::as.simple.formula(subset,"C"), train)
+        error.rate <- sum(test$C != predict(tree, test, type="c")) / nrow(test)
+        return(1 - error.rate)
+    })
+    cat(subset, "->", mean(results), "\n")
+    return(mean(results))
+}
+```
+
+##### wrapper: best.first.search
+
+Este método se trata de una búsqueda primero el mejor. Dado que el número de combinaciones de las variables es enorme, el método tarda mucho en terminar, es por esto que he puesto un timeout de 10 segundos.
+
+```{r}
+R.utils::withTimeout(FSelector::best.first.search(names(train[,1:50]), evaluator), timeout = 10, onTimeout = "silent")
+```
+
+##### wrapper: exhaustive.search
+
+Este método se trata de una búsqueda exaustiva. Dado que el número de combinaciones de las variables es enorme, el método tarda mucho en terminar, es por esto que he puesto un timeout de 10 segundos.
+
+```{r}
+R.utils::withTimeout(FSelector::exhaustive.search(names(train[,1:50]), evaluator), timeout = 10, onTimeout = "silent")
+```
+
+##### wrapper: greedy.search
+
+Este método se trata de una búsqueda greedy, de manera ascendente o descendente. Dado que el número de combinaciones de las variables es enorme, el método tarda mucho en terminar, es por esto que he puesto un timeout de 10 segundos.
+
+```{r}
+R.utils::withTimeout(FSelector::forward.search(names(train[,1:50]), evaluator), timeout = 10, onTimeout = "silent")
+R.utils::withTimeout(FSelector::backward.search(names(train[,1:50]), evaluator), timeout = 10, onTimeout = "silent")
+```
+
+##### wrapper: hill.climbing.search
+
+Este método se trata de una búsqueda de escalada simple. Dado que el número de combinaciones de las variables es enorme, el método tarda mucho en terminar, es por esto que he puesto un timeout de 10 segundos.
+
+```{r}
+R.utils::withTimeout(FSelector::hill.climbing.search(names(train[,1:50]), evaluator), timeout = 10, onTimeout = "silent")
+```
+
+##### wrapper: cfs
+
+```{r}
+Sys.time()
+
+attrs.cfs.train <- FSelector::cfs(C ~ ., train)
+attrs.cfs.amelia <- FSelector::cfs(C ~ ., amelia)
+attrs.cfs.missForest <- FSelector::cfs(C ~ ., missForest)
+attrs.cfs.mice.sample <- FSelector::cfs(C ~ ., mice.sample)
+
+cfs.train <- cbind(train[, attrs.cfs.train], C = train$C)
+cfs.amelia <- cbind(amelia[, attrs.cfs.amelia], C = amelia$C)
+cfs.missForest <- cbind(missForest[, attrs.cfs.missForest], C = missForest$C)
+cfs.mice.sample <- cbind(mice.sample[, attrs.cfs.mice.sample], C = mice.sample$C)
+
+cfs.train.pct <- kaggle.file(cfs.train, test[, attrs.cfs.train])
+cfs.amelia.pct <- kaggle.file(cfs.amelia, test[, attrs.cfs.amelia])
+cfs.missForest.pct <- kaggle.file(cfs.missForest, test[, attrs.cfs.missForest])
+cfs.mice.sample.pct <- kaggle.file(cfs.mice.sample, test[, attrs.cfs.mice.sample])
+
+Sys.time()
+```
+
+##### wrapper: consistency
+
+Este método es muy lento así que en la prática no es viable. He dejado el código comentado de como sería su uso en caso de disponer de un conjunto de datos más pequeño.
+
+```{r}
+# Sys.time()
+
+# attrs.consistency.train <- FSelector::consistency(C ~ ., train)
+# attrs.consistency.amelia <- FSelector::consistency(C ~ ., amelia)
+# attrs.consistency.missForest <- FSelector::consistency(C ~ ., missForest)
+# attrs.consistency.mice.sample <- FSelector::consistency(C ~ ., mice.sample)
+
+# consistency.train <- cbind(train[, attrs.consistency.train], C = train$C)
+# consistency.amelia <- cbind(amelia[, attrs.consistency.amelia], C = amelia$C)
+# consistency.missForest <- cbind(missForest[, attrs.consistency.missForest], C = missForest$C)
+# consistency.mice.sample <- cbind(mice.sample[, attrs.consistency.mice.sample], C = mice.sample$C)
+
+# consistency.train.pct <- kaggle.file(consistency.train, test[, attrs.consistency.train])
+# consistency.amelia.pct <- kaggle.file(consistency.amelia, test[, attrs.consistency.amelia])
+# consistency.missForest.pct <- kaggle.file(consistency.missForest, test[, attrs.consistency.missForest])
+# consistency.mice.sample <- cbind(mice.sample[, attrs.consistency.mice.sample], C = mice.sample$C)
+
+# Sys.time()
+```
+
+#### embedded: ramdom.forest.importance
+
+```{r}
+Sys.time()
+
+w.rfi.train <- FSelector::random.forest.importance(C ~ ., train)
+w.rfi.amelia <- FSelector::random.forest.importance(C ~ ., amelia)
+w.rfi.missForest <- FSelector::random.forest.importance(C ~ ., missForest)
+w.rfi.mice.sample <- FSelector::random.forest.importance(C ~ ., mice.sample)
+
+attrs.rfi.train <- FSelector::cutoff.k.percent(w.rfi.train, .5)
+attrs.rfi.amelia <- FSelector::cutoff.k.percent(w.rfi.amelia, .5)
+attrs.rfi.missForest <- FSelector::cutoff.k.percent(w.rfi.missForest, .5)
+attrs.rfi.mice.sample <- FSelector::cutoff.k.percent(w.rfi.mice.sample, .5)
+
+rfi.train <- cbind(train[, attrs.rfi.train], C = train$C)
+rfi.amelia <- cbind(amelia[, attrs.rfi.amelia], C = amelia$C)
+rfi.missForest <- cbind(missForest[, attrs.rfi.missForest], C = missForest$C)
+rfi.mice.sample <- cbind(mice.sample[, attrs.rfi.mice.sample], C = mice.sample$C)
+
+rfi.train.pct <- kaggle.file(rfi.train, test[, attrs.rfi.train])
+rfi.amelia.pct <- kaggle.file(rfi.amelia, test[, attrs.rfi.amelia])
+rfi.missForest.pct <- kaggle.file(rfi.missForest, test[, attrs.rfi.missForest])
+rfi.mice.sample.pct <- kaggle.file(rfi.mice.sample, test[, attrs.rfi.mice.sample])
+
+Sys.time()
+```
+
+### caret
+
+Otro paquete que podemos probar es *caret*.
+
+#### variables muy correladas
+
+A continuación, voy a probar a eliminar las variables más correladas. En mi caso, estas variables son las que tienen una correlación mayor que 0.8. Debemos tener en cuenta que no sirve para el conjunto de datos original por tener valores NA, ya que todos los valores de la matriz de correlaciones son NA excepto en la diagonal:
+
+```{r}
+cor(train[, 1:50])
+```
+
+Veamos ahora el resultado para los otros tres conjuntos de datos:
+
+```{r}
+Sys.time()
+
+cor.amelia <- cor(amelia[, 1:50])
+cor.missForest <- cor(missForest[, 1:50])
+cor.mice.sample <- cor(mice.sample[, 1:50])
+
+hc.amelia <- caret::findCorrelation(cor.amelia, cutoff = 0.8)
+hc.missForest <- caret::findCorrelation(cor.missForest, cutoff = 0.8)
+hc.mice.sample <- caret::findCorrelation(cor.mice.sample, cutoff = 0.8)
+
+sin.hc.amelia <- amelia[, -hc.amelia]
+sin.hc.missForest <- missForest[, -hc.missForest]
+sin.hc.mice.sample <- mice.sample[, -hc.mice.sample]
+
+sin.hc.amelia.pct <- kaggle.file(sin.hc.amelia, test[, -hc.amelia])
+sin.hc.missForest.pct <- kaggle.file(sin.hc.missForest, test[, -hc.missForest])
+sin.hc.mice.sample.pct <- kaggle.file(sin.hc.mice.sample, test[, -hc.mice.sample])
+
+Sys.time()
+```
+
+#### Cálculo de la importancia de las variables
+
+Este método no lo podemos aplicar sobre el conjunto de datos original ni sobre *mice.sample* por tener valores NA.
+
+```{r}
+Sys.time()
+
+ctrl <- caret::trainControl(method = "repeatedcv", number = 5, repeats = 3)
+
+set.seed(1)
+amelia.model <- caret::train(C ~ ., data = amelia, method = "lvq", preProcess = "scale", trControl = ctrl)
+amelia.importance <- caret::varImp(amelia.model, scale = FALSE)$importance
+attrs.amelia.importance <- rownames(amelia.importance[order(amelia.importance$X0, decreasing = T),][1:25,])
+varImp.amelia <- cbind(amelia[, attrs.amelia.importance], C = amelia$C)
+varImp.amelia.pct <- kaggle.file(varImp.amelia, test[, attrs.amelia.importance])
+
+set.seed(1)
+missForest.model <- caret::train(C ~ ., data = missForest, method = "lvq", preProcess = "scale", trControl = ctrl)
+missForest.importance <- caret::varImp(missForest.model, scale = FALSE)$importance
+attrs.missForest.importance <- rownames(missForest.importance[order(missForest.importance$X0, decreasing = T),][1:25,])
+varImp.missForest <- cbind(missForest[, attrs.missForest.importance], C = missForest$C)
+varImp.missForest.pct <- kaggle.file(varImp.missForest, test[, attrs.missForest.importance])
+
+Sys.time()
+```
+
+### Boruta
+
+Este paquete no lo podemos aplicar sobre el conjunto de datos original ni sobre *mice.sample* por tener valores NA.
+
+```{r}
+Sys.time()
+
+amelia.boruta <- Boruta::Boruta(C ~ ., data = amelia)
+print(amelia.boruta)
+
+missForest.boruta <- Boruta::Boruta(C ~ ., data = missForest)
+print(missForest.boruta)
+
+Sys.time()
+```
+
+Este paquete no ha seleccionado ninguna variable para ninguno de los dos conjuntos, es decir, considera que las 50 son importantes.
+
+### PCA
+
+PCA no puede ser aplicado sobre el conjunto de datos original ni sobre *mice.sample* por tener valores NA. Lo primero que vamos a hacer es aplicar PCA sobre los dos conjuntos de datos restantes y pintar un gráfico que nos pinte el porcentaje que explica cada componente principal. De esta mnaera, podemos decidir cuantas componentes principales y, por lo tanto, nuevas dimensiones, queremos:
+
+```{r}
+amelia.pca.analysis <- prcomp(amelia[,1:50], scale = TRUE)
+factoextra::fviz_eig(amelia.pca.analysis)
+
+missForest.pca.analysis <- prcomp(missForest[,1:50], scale = TRUE)
+factoextra::fviz_eig(missForest.pca.analysis)
+```
+
+Como podemos ver, si cogemos sólo las 10 mejores componentes principales, tenemos un alto porcentaje de explicación del data set y reduciendo la dimensionalidad del problema cinco veces. 
+
+```{r}
+amelia.pca <- as.data.frame(cbind(as.data.frame(amelia.pca.analysis$x[,1:10]), C = train$C))
+missForest.pca <- as.data.frame(cbind(as.data.frame(missForest.pca.analysis$x[,1:10]), C = train$C))
+```
+
+Debemos tener cuidado ya que tenemos que aplicar las mismas transformaciones que hace PCA sobre el conjunto de entrenamiento al conjunto de test. Para ello, ejecutamos las siguientes ordenes:
+
+```{r}
+test.amelia.pca <- as.data.frame(predict(amelia.pca.analysis, newdata = test))[,1:10]
+test.missForest.pca <- as.data.frame(predict(missForest.pca.analysis, newdata = test))[,1:10]
+```
+
+Una vez tenemos el conjunto de entrenamiento y el conjunto de test listos, podemos llamar a la función *kaggle.file* para comprobar su rendimiento:
+
+```{r}
+Sys.time()
+
+amelia.pca.pct <- kaggle.file(amelia.pca, test.amelia.pca)
+
+missForest.pca.pct <- kaggle.file(missForest.pca, test.missForest.pca)
+
+Sys.time()
+```
+
+## Detección de ruido
+
+Finalmente, podemos probar a eliminar ruido con el algoritmo *IPF* del paquete *NoiseFilter*
+
+```{r}
+Sys.time()
+
+set.seed(1)
+train.ipf.out <- NoiseFiltersR::IPF(C ~ ., data = train, s = 2)
+train.ipf <- train.ipf.out$cleanData
+train.ipf.pct <- kaggle.file(train.ipf, test)
+
+set.seed(1)
+amelia.ipf.out <- NoiseFiltersR::IPF(C ~ ., data = amelia, s = 2)
+amelia.ipf <- amelia.ipf.out$cleanData
+amelia.ipf.pct <- kaggle.file(amelia.ipf, test)
+
+set.seed(1)
+missForest.ipf.out <- NoiseFiltersR::IPF(C ~ ., data = missForest, s = 2)
+missForest.ipf <- missForest.ipf.out$cleanData
+missForest.ipf.pct <- kaggle.file(missForest.ipf, test)
+
+set.seed(1)
+mice.sample.ipf.out <- NoiseFiltersR::IPF(C ~ ., data = mice.sample, s = 2)
+mice.sample.ipf <- mice.sample.ipf.out$cleanData
+mice.sample.ipf.pct <- kaggle.file(mice.sample.ipf, test)
+
+Sys.time()
+```
+
+Como podemos ver, es bastante sorprendente los resultados que obtenemos en cuanto a porcentaje de acierto con respecto a las pruebas anteriormente realizadas para los datasets imputados con *amelia* (`r amelia.ipf.pct`%) y *missForest* (`r missForest.ipf.pct`%). El problema viene cuando subimos el fichero generado a kaggle. El porcentaje de clasificación de estos ficheros en kaggle más bajo, un *88.514*% para *amelia* y un *88.871*% para *missForest*. Aparentemente, los resultados son buenos pero, por ejemplo, el conjunto de datos original tiene un `r train.pct`% mientras que en la competición de kaggle obtiene un *89.127*%. Aunque solo haya puesto el conjunto original como ejemplo, esto sucede en todos los conjuntos preprocesados probados, es decir, el porcentaje se incrementa en kaggle con respecto al obtenido en las pruebas locales. Sin embargo, para el caso de *ipf*, sucede al reves, el porcentaje se reduce. Esto nos lleva a pensar que estos modelos han sobreaprendido y, por lo tanto, no nos interesan.
+
+## Algunos experimentos más.
+
+```{r}
+Sys.time()
+
+set.seed(1)
+rfi.amelia.ipf.out <- NoiseFiltersR::IPF(C ~ ., data = rfi.amelia, s = 2)
+rfi.amelia.ipf <- rfi.amelia.ipf.out$cleanData
+rfi.amelia.ipf.pct <- kaggle.file(rfi.amelia.ipf, test[, attrs.rfi.amelia])
+
+Sys.time()
+```
+
+Este nuevo conjunto preprocesado parece bastante prometedor. Sin embargo, al subirlo a *kaggle* obtiene un *89.076*%, lo cual nos indica que se ha producido sobreaprendizaje y, por lo tanto, no nos interesa dicho modelo ni el conjunto de datos asociado.
+
+```{r}
+Sys.time()
+
+rfi.amelia.pca <- prcomp(rfi.amelia[,1:25], scale = TRUE)
+factoextra::fviz_eig(rfi.amelia.pca)
+test.rfi.amelia.pca <- as.data.frame(predict(rfi.amelia.pca, newdata = test[, attrs.rfi.amelia]))
+rfi.amelia.pca <- as.data.frame(cbind(as.data.frame(rfi.amelia.pca$x), C = rfi.amelia$C))
+rfi.amelia.pca.pct <- kaggle.file(rfi.amelia.pca, test.rfi.amelia.pca)
+
+Sys.time()
+```
+
+Como podemos ver, con 10 componentes principales somos capaces de explicar los datos bastante bien. Tras subir este nuevo fichero a *kaggle*, el resultado es de *86.727*%, lo cual está bien pero no es de los mejores resultados obtenido.
+
+## Resultados finales
+
+Una vez tenemos todos los porcentajes de los experimentos, voy a crear una lista con todos ellos:
+
+```{r}
+final.pcts <- list(train = train.pct,
+                   mice.cart = mice.cart.pct,
+                   mice.mean = mice.mean.pct,
+                   mice.midastouch = mice.midastouch.pct,
+                   mice.norm = mice.norm.pct,
+                   mice.norm.boot = mice.norm.boot.pct,
+                   mice.norm.nob = mice.norm.nob.pct,
+                   mice.norm.predict = mice.norm.predict.pct,
+                   mice.pmm = mice.pmm.pct,
+                   mice.rf = mice.rf.pct,
+                   mice.ri = mice.ri.pct,
+                   mice.sample = mice.sample.pct,
+                   amelia = amelia.pct,
+                   missForest = missForest.pct,
+                   discretized.train = discretized.train.pct,
+                   discretized.amelia = discretized.amelia.pct,
+                   discretized.missForest = discretized.missForest.pct,
+                   discretized.mice.sample = discretized.mice.sample.pct,
+                   chi.sq.train = chi.sq.train.pct,
+                   chi.sq.amelia = chi.sq.amelia.pct,
+                   chi.sq.missForest = chi.sq.missForest.pct,
+                   chi.sq.mice.sample = chi.sq.mice.sample.pct,
+                   lc.train = lc.train.pct,
+                   lc.amelia = lc.amelia.pct,
+                   lc.missForest = lc.missForest.pct,
+                   lc.mice.sample = lc.mice.sample.pct,
+                   ig.train = ig.train.pct,
+                   ig.amelia = ig.amelia.pct,
+                   ig.missForest = ig.missForest.pct,
+                   ig.mice.sample = ig.mice.sample.pct,
+                   gr.train = gr.train.pct,
+                   gr.amelia = gr.amelia.pct,
+                   gr.missForest = gr.missForest.pct,
+                   gr.mice.sample = gr.mice.sample.pct,
+                   su.train = su.train.pct,
+                   su.amelia = su.amelia.pct,
+                   su.missForest = su.missForest.pct,
+                   su.mice.sample = su.mice.sample.pct,
+                   oneR.train = oneR.train.pct,
+                   oneR.amelia = oneR.amelia.pct,
+                   oneR.missForest = oneR.missForest.pct,
+                   oneR.mice.sample = oneR.mice.sample.pct,
+                   relief.train = relief.train.pct,
+                   relief.amelia = relief.amelia.pct,
+                   relief.missForest = relief.missForest.pct,
+                   relief.mice.sample = relief.mice.sample.pct,
+                   cfs.train = cfs.train.pct,
+                   cfs.amelia = cfs.amelia.pct,
+                   cfs.missForest = cfs.missForest.pct,
+                   cfs.mice.sample = cfs.mice.sample.pct,
+                   rfi.train = rfi.train.pct,
+                   rfi.amelia = rfi.amelia.pct,
+                   rfi.missForest = rfi.missForest.pct,
+                   rfi.mice.sample = rfi.mice.sample.pct,
+                   sin.hc.amelia = sin.hc.amelia.pct,
+                   sin.hc.missForest = sin.hc.missForest.pct,
+                   sin.hc.mice.sample = sin.hc.mice.sample.pct,
+                   varImp.amelia = varImp.amelia.pct,
+                   varImp.missForest = varImp.missForest.pct,
+                   amelia.pca = amelia.pca.pct,
+                   missForest.pca = missForest.pca.pct,
+                   train.ipf = train.ipf.pct,
+                   amelia.ipf = amelia.ipf.pct,
+                   missForest.ipf = missForest.ipf.pct,
+                   mice.sample.ipf = mice.sample.ipf.pct,
+                   rfi.amelia.ipf = rfi.amelia.ipf.pct,
+                   rfi.amelia.pca = rfi.amelia.pca.pct)
+```
+
+También podemos ordenar los porcentajes para así tenerlos ordenados de mejor a peor resultado:
+
+```{r}
+order.final.pcts <- final.pcts[order(unlist(final.pcts), decreasing=TRUE)]
+order.final.pcts
+```
+
+He ido subiendo a *kaggle* los reulstados que he ido probando. He seleccionados los 45 mejores resultados locales y he guardado sus resultados en *kaggle*. Dichos resultados son:
+
+```{r}
+kaggle.pcts <- list(rfi.amelia.ipf = 0.89076, 
+                    missForest.ipf = 0.88871, 
+                    amelia.ipf = 0.88514, 
+                    rfi.amelia = 0.86727, 
+                    mice.sample.ipf = 0.87901, 
+                    mice.norm = 0.88871, 
+                    rfi.missForest = 0.88871, 
+                    mice.norm.nob = 0.88922, 
+                    mice.ri = 0.87748, 
+                    rfi.mice.sample = 0.89127, 
+                    mice.rf = 0.88157, 
+                    rfi.train = 0.87953, 
+                    train = 0.89127, 
+                    mice.pmm = 0.88208, 
+                    mice.sample = 0.89841, 
+                    mice.mean = 0.88871, 
+                    amelia = 0.88514, 
+                    lc.amelia = 0.88004, 
+                    mice.norm.boot = 0.88667, 
+                    mice.midastouch = 0.88871, 
+                    lc.train = 0.87391, 
+                    train.ipf = 0.87953, 
+                    missForest = 0.88004, 
+                    lc.missForest = 0.87697, 
+                    sin.hc.mice.sample = 0.88361, 
+                    lc.mice.sample = 0.88616, 
+                    mice.norm.predict = 0.88412, 
+                    mice.cart = 0.88157,
+                    relief.mice.sample = 0.87953,
+                    oneR.mice.sample = 0.87799,
+                    gr.amelia = 0.87187,
+                    relief.amelia = 0.87442,
+                    relief.train = 0.87799,
+                    chi.sq.missForest = 0.86881,
+                    su.amelia = 0.87136,
+                    ig.mice.sample = 0.88973,
+                    su.missForest = 0.87901,
+                    oneR.amelia = 0.87544,
+                    ig.missForest = 0.87646,
+                    ig.amelia = 0.88004,
+                    ig.train = 0.87391,
+                    gr.missForest = 0.87391,
+                    gr.train = 0.87391,
+                    cfs.missForest = 0.88412,
+                    su.mice.sample = 0.86319,
+                    chi.sq.amelia = 0.87595,
+                    cfs.amelia = 0.87136)
+
+order.kaggle.pcts <- kaggle.pcts[order(unlist(kaggle.pcts), decreasing=TRUE)]
+order.kaggle.pcts
+```
+
+Las 10 entregas elegidas son las 10 mejores en *kaggle*, en este caso: 
+
+```{r}
+names(order.kaggle.pcts[1:10])
+```
