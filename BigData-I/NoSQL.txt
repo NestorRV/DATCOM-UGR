@@ -1,0 +1,256 @@
+/*
+Realizado por Néstor Rodríguez Vico
+*/
+
+/*
+Obtener el par de restaurantes más próximos para cada "zipcode", 
+mostrando el nombre, la dirección, la distancia entre ellos y 
+la cantidad de restaurantes evaluados para cada "zipcode", 
+para aquellos restaurantes que hayan tenido un "score" 
+mayor que 5 en alguna ocasión"
+*/
+
+/*
+**********************************************************
+Enfoque MapReduce
+**********************************************************
+*/
+
+db.runCommand({
+    mapReduce: 'restaurants',
+    map: function Map() {
+        var key = this.address.zipcode;
+        emit(key, {
+            'data': [{
+                    'name': this.name,
+                    'x': this.address.coord[0],
+                    'y': this.address.coord[1],
+                    'address': this.address
+                }]
+        });
+    },
+    reduce: function ReduceCode(key, values) {
+        var reduced = { 'data': [] };
+        for (var i in values) {
+            /* Para cada valor en values, que puede incluir
+            lo devuelto por una llamada anterior a reduce */
+            var inter = values[i];
+            for (var j in inter.data) {
+                /* Añade al array de la variable devuelta cada 
+                elemento del array de entrada (values) */
+                reduced.data.push(inter.data[j]);
+            }
+        }
+        return reduced;
+    },
+    finalize: function Finalize(key, reduced) {
+        if (reduced.data.length == 1) {
+            return { 'message': 'Este zipcode solo tiene un restaurante.' };
+        }
+        var min_dist = 999999999999;
+        var restaurant1 = { 'name': '' };
+        var restaurant2 = { 'name': '' };
+        var r1;
+        var r2;
+        var distance;
+        for (var i in reduced.data) {
+            for (var j in reduced.data) {
+                if (i >= j)
+                    continue;
+                r1 = reduced.data[i];
+                r2 = reduced.data[j];
+                distance = (r1.x - r2.x) * (r1.x - r2.x) + (r1.y - r2.y) * (r1.y - r2.y);
+                if (distance < min_dist && distance > 0) {
+                    min_dist = distance;
+                    restaurant1 = r1;
+                    restaurant2 = r2;
+                }
+            }
+        }
+        return {
+            'restaurant1': restaurant1.name,
+            'address1': restaurant1.address,
+            'restaurant2': restaurant2.name,
+            'address2': restaurant2.address,
+            'distance': Math.sqrt(min_dist),
+            'restaurantes.evaluados': reduced.data.length
+        };
+    },
+    query: { 'grades.score': { $gte: 5 } },
+    out: { replace: 'rest_mapreduce' }
+});
+
+/*
+**********************************************************
+Enfoque aggregate
+**********************************************************
+*/
+
+db.runCommand({
+    aggregate: 'restaurants',
+    pipeline: [
+        { $match: { 'grades.score': { $gte: 5 } } },
+        // Agrupa por código postal y le añade los arrays rest1 y rest2 
+        // con los datos de los restaurantes de ese código postal
+        {
+            $group: {
+                _id: '$address.zipcode',
+                'rest1': {
+                    $push: {
+                        resID: '$restaurant_id',
+                        name: '$name',
+                        dir: '$address'
+                    }
+                },
+                'rest2': {
+                    $push: {
+                        resID: '$restaurant_id',
+                        name: '$name',
+                        dir: '$address'
+                    }
+                },
+                restaurantes_evaluados: { $sum: 1 }
+            }
+        },
+        { $unwind: '$rest1' },
+        // Desanida rest1, crea un documento por cada elemento del array rest1
+        { $unwind: '$rest2' },
+        // Desanida rest2 crea un documento por cada elemento del array rest2
+        // Calcula la distancia entre cada par de restaurantes en el campo distancia, 
+        // devuelve otros datos necesarios.
+        {
+            $project: {
+                _id: 0,
+                zipcode: '$_id',
+                rest1: '$rest1',
+                rest2: '$rest2',
+                distance: {
+                    $sqrt: {
+                        $sum: [
+                            {
+                                $pow: [
+                                    {
+                                        $subtract: [
+                                            {
+                                                $arrayElemAt: [
+                                                    '$rest1.dir.coord',
+                                                    0
+                                                ]
+                                            },
+                                            {
+                                                $arrayElemAt: [
+                                                    '$rest2.dir.coord',
+                                                    0
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    2
+                                ]
+                            },
+                            {
+                                $pow: [
+                                    {
+                                        $subtract: [
+                                            {
+                                                $arrayElemAt: [
+                                                    '$rest1.dir.coord',
+                                                    -1
+                                                ]
+                                            },
+                                            {
+                                                $arrayElemAt: [
+                                                    '$rest2.dir.coord',
+                                                    -1
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    2
+                                ]
+                            }
+                        ]
+                    }
+                },
+                restaurantes_evaluados: 1 
+            }
+        },
+        // Eliminamos parejas de ciudades redundantes y aquellas 
+        // parejas que están a distancia 0.
+        {
+            $redact: {
+                '$cond': [
+                    {
+                        $and: [
+                            {
+                                '$lt': [
+                                    '$rest1.resID',
+                                    '$rest2.resID'
+                                ]
+                            },
+                            {
+                                '$ne': [
+                                    '$distance',
+                                    0
+                                ]
+                            }
+                        ]
+                    },
+                    '$$KEEP',
+                    '$$PRUNE'
+                ]
+            }
+        },
+        {
+            $group: {
+                _id: '$zipcode',
+                'dist_min': { $min: '$distance' },
+                restaurantes_evaluados :{ $sum: 1 },
+                // Obtenemos las distancia mínima para cada país
+                // Añadimos a la salida un array con los datos de todas 
+                // las parejas de ciudades de cada país
+                'pairs': {
+                    $push: {
+                        rest1: '$rest1',
+                        rest2: '$rest2',
+                        distance: '$distance'
+                    }
+                },
+            }
+        },
+        { $unwind: '$pairs' },
+        // Desanidamos el array pairs
+        // Nos quedamos con aquellas parejas cuya distancia coincide con 
+        // la distancia mínima de ese código postal
+        {
+            $redact: {
+                '$cond': [
+                    {
+                        '$eq': [
+                            '$dist_min',
+                            '$pairs.distance'
+                        ]
+                    },
+                    '$$KEEP',
+                    '$$PRUNE'
+                ]
+            }
+        },
+        // Proyectamos sobre los datos solicitados
+        {
+            $project: {
+                _id: 0,
+                'zipcode': '$_id',
+                'restaurant1': '$pairs.rest1.name',
+                'address1': '$pairs.rest1.dir',
+                'restaurant2': '$pairs.rest2.name',
+                'address2': '$pairs.rest2.dir',
+                'distance': '$dist_min',
+                'restaurantes_evaluados': '$restaurantes_evaluados'
+            }
+        },
+        { $out: 'rest_aggregate' }
+    ],
+    cursor: { batchSize: 20000 },
+    allowDiskUse: true
+});
