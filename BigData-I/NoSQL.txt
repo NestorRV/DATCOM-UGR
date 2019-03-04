@@ -18,6 +18,7 @@ Enfoque MapReduce
 
 db.runCommand({
     mapReduce: 'restaurants',
+    query: { 'grades.score': { $gte: 5 } },
     map: function Map() {
         var key = this.address.zipcode;
         emit(key, {
@@ -48,11 +49,11 @@ db.runCommand({
             return { 'message': 'Este zipcode solo tiene un restaurante.' };
         }
         var min_dist = 999999999999;
-        var restaurant1 = { 'name': '' };
-        var restaurant2 = { 'name': '' };
         var r1;
         var r2;
         var distance;
+        // Array donde vamos a ir guardando las mejores parejas
+        var bestRests = new Array();
         for (var i in reduced.data) {
             for (var j in reduced.data) {
                 if (i >= j)
@@ -60,23 +61,34 @@ db.runCommand({
                 r1 = reduced.data[i];
                 r2 = reduced.data[j];
                 distance = (r1.x - r2.x) * (r1.x - r2.x) + (r1.y - r2.y) * (r1.y - r2.y);
-                if (distance < min_dist && distance > 0) {
+                if (distance <= min_dist && r1.name != r2.name) {
+                    if(distance == min_dist){
+                        // Si lo que he calculado es igual de bueno que lo que ya tengo
+                        // lo guardo
+                        bestRests.push({
+                            'restaurant1': r1.name, 'address1': r1.address,
+                            'restaurant2': r2.name, 'address2': r2.address,
+                            'distance': Math.sqrt(distance),
+                            'restaurantes.evaluados': reduced.data.length
+                        })
+                    } else {
+                        // Si encuentro algo mejor, borro los guardados
+                        bestRests = new Array();
+                        // Y guardo la nueva pareja
+                        bestRests.push({
+                            'restaurant1': r1.name, 'address1': r1.address,
+                            'restaurant2': r2.name, 'address2': r2.address,
+                            'distance': Math.sqrt(distance),
+                            'restaurantes.evaluados': reduced.data.length
+                        })
+                    }
+
                     min_dist = distance;
-                    restaurant1 = r1;
-                    restaurant2 = r2;
                 }
             }
         }
-        return {
-            'restaurant1': restaurant1.name,
-            'address1': restaurant1.address,
-            'restaurant2': restaurant2.name,
-            'address2': restaurant2.address,
-            'distance': Math.sqrt(min_dist),
-            'restaurantes.evaluados': reduced.data.length
-        };
+        return bestRests;
     },
-    query: { 'grades.score': { $gte: 5 } },
     out: { replace: 'rest_mapreduce' }
 });
 
@@ -181,19 +193,9 @@ db.runCommand({
             $redact: {
                 '$cond': [
                     {
-                        $and: [
-                            {
-                                '$lt': [
-                                    '$rest1.resID',
-                                    '$rest2.resID'
-                                ]
-                            },
-                            {
-                                '$ne': [
-                                    '$distance',
-                                    0
-                                ]
-                            }
+                        '$lt': [
+                            '$rest1.resID',
+                            '$rest2.resID'
                         ]
                     },
                     '$$KEEP',
