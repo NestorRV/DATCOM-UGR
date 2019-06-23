@@ -1,0 +1,101 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=3cm]{geometry}
+\usepackage{amsfonts}
+\usepackage{listings}
+\usepackage[T1]{fontenc}
+\usepackage{float}
+\usepackage{subfig}
+
+\title{Trabajo 1 - Visión por Computador.}
+\author{Néstor Rodríguez Vico. DNI: 75573052C - \href{mailto:nrv23@correo.ugr.es}{nrv23@correo.ugr.es}}
+\date{\today}
+
+
+\lstdefinestyle{bash_style}{
+	language=bash,
+	frame=single,
+	xleftmargin=.25in,
+	upquote = true,
+	basicstyle=\scriptsize,
+	breakatwhitespace=false,         
+	breaklines=true,                 
+	captionpos=b,                    
+	keepspaces=true,                 
+	numbers=left,                    
+	numbersep=5pt,                  
+	showspaces=false,                
+	showstringspaces=false,
+	showtabs=false,                  
+	tabsize=2
+}
+
+\lstset{style=bash_style}
+
+\begin{document}
+\maketitle
+
+\setlength{\belowdisplayskip}{5pt} 
+\setlength{\belowdisplayshortskip}{5pt}
+\setlength{\abovedisplayskip}{5pt} 
+\setlength{\abovedisplayshortskip}{5pt}
+
+\section{Introducción.}
+
+La visión artificial es un subcampo de la inteligencia artificial cuya  es finalidad la extracción de información del mundo físico a partir de imágenes. La entrada de un Sistema de Visión Artificial es una imagen y la salida es una descripción de la escena reflejada en la imagen. Esta descripción debe estar relacionada la realidad representada en la imagen pero también debe ser intepretable por un ordenador. Por lo tanto, el propósito de producir un Sistemas de Visión Artificial es programar un ordenador para que ``entienda'' una escena o las características de una imagen. 
+
+\section{Historia.}
+
+La visión artificial surge en la década de los 60 tras conectar una cámara de video a un ordenador, lo cual no solo implicó la captura de imágenes sino también la comprensión de lo que estas imágenes representaban para su almacentamiento. El inicio de la visión artificial fue \textit{ARPAnet}, un trabajo de Larry Roberts en el año 1961. \textit{ARPAnet} es un programa en el cual un robot podía ``ver'' una estructura de bloques sobre una mesa, analizar su contenido y reproducirla desde otra perspectiva. Esto demostraba que el sistema había procesado correctamente la información. Los primeros sistemas se basaron en imágenes binarias. A continuación, se logró reconocer el contorno de objetos y su posición dentro de una imagen, los cuales tenías la limitación de que no funcionaban si variaba la iluminación. Posteriormente se introdujeron sistemas que hacían uso de la intensidad de gris, es decir, en cada píxel se representaba un número proporcional a la intensidad de gris de dicho elemento, lo cual solucionó el problema de la iluminación de los sistemas previos. Hoy en día, la visión por computador abarca la obtención, la caracterización y la interpretación de los objetos contenidos en una imagen. La visión por computador es uno de los principales para incrementar la autonomía en robótica ya que proveen de información relevante sobre el estado de los robots y de su entorno físico, permitiendo así automatizar ciertos procesos que, a día de hoy, requeiren de la visión humana para ser resueltos.
+
+\section{Componentes de un Sistema de Visión.}
+
+Los diferentes componentes de un sistema de visión artificial incluyen:
+
+\begin{itemize}
+	\item \textbf{Sistema de iluminación}: dicho sistema controla la forma en que el sistema de captación va a ver el objeto. Un buen sistema de iluminación simplifica el posterior procesamiento de la escena captada. En este sistema tenemos cualquier objeto capaz de producir luz, como las lámparas o focos.
+	\item \textbf{Sistema de captación}: sistema capaz de convertir la radiación electromagnética reflejada en los objetos en señales eléctricas. El ejemplo clásico de un elemento de este sistema son las cámaras. Este sistemas es imprescindible, ya que sin el, no hay imágenes que procesar.
+	\item \textbf{Sistema de adquisición}: sistema encargado de procesar la señal eléctrica y muestrearla y cuantificarla para poder representarla de forma que pueda ser almacenada en la memoria de un ordenador.
+	\item \textbf{Sistema de procesamiento}: Es la parte inteligente del Sistema de Visión. Consiste en aplicar las transformaciones necesarias y extracciones de información de las imágenes capturadas, es decir, es la parte encargada de analizar y ``comprender'' que hay en una imagen.
+	\item \textbf{Sistema de periféricos}: último paso de nuestro Sistema de Visión. Este sistema se encarga de recibir la información de alto nivel del sistema anterior y mostrarla. El ejemplo clasico es una pantalla.
+\end{itemize}
+
+\section{Aplicaciones.}
+
+Los sitemas de visión artificiales son muy usados hoy en día. Los principales campos son:
+
+\begin{itemize}
+	\item \textbf{Automoción}: coches aútonomos.
+	\item \textbf{Reconocimiento facial/ocular}: sistemas que usan la cara o el ojo como identificación de una persona.
+	\item \textbf{Industria}: Permite guiar a los robots en entornos industrializados.
+	\item \textbf{Alimentación}: permite llevar el control control de calidad de cada tipo de producto alimentario.
+	\item \textbf{Medicina}: análisis de imágenes RMI, rayos X, imágenes microscópicas...
+	\item \textbf{Reconocimiento de objectos}: muy utiles en taréas de clasificación, pudiendo detecter y analizar que objetos hay presentes en una imagen para su posterior procesamiento.
+	\item \textbf{Análisis de imágenes tomadas por satélite}: elaboración de mapas a partir de imágenes, análisis meterológico...
+\end{itemize}
+
+\section{Descripción de una aplicación real.}
+
+En mi caso, he optado por elegir un sistema de visión artificial de conducción autónoma. Dicho tema está en auge hoy en día. Por ello, se proponen las siguientes etapas:
+
+\begin{itemize}
+	\item \textbf{Adquisición de las imágenes}. Para esta etapa, necesitamos instalar un sistema de cámaras alrededor del veículo para poder tener una visión total del enterno del mismo.
+	\item \textbf{Preprocesamiento}. Aunque las imágenes hayan sido tomadas en las mejores condiciones, siempre debemos aplicar un preprocesamiento a las imágenes para poder tenerlas en las mejores condiciones posibles. Por ejemplo, podemos aplicar técnicas de eliminación de ruido, mejora de contraste o, incluso, si hay movimiento en las imágenes, reducir dicha borrosidad.
+	\item \textbf{Segmentación}. En esta parte buscamos identificar que regiones son más relevantes para nuestra tarea. En nuestro caso, hay regiones de las imágenes que no nos interesan, como puede ser el cielo de las imágenes. Por lo tanto, debemos encontrar técnicas que nos permitan eliminar dichas zonas.
+	\item \textbf{Extracción de características}. Una vez tenemos las imágenes en buena calidad y hemos eliminado las zonas que no son relevantes, podemos aplicar algorimos que nos permitan describir las zonas restantes de alguna manera que pueda ser interpretado por un algoritmo de clasificación en las etapas posteriores. Para ello, podemos usar descritories, los cuales, tal y como su nombre indican, son capaces de describir de una forma numérica ciertas características presentes en las imagen.
+	
+	\item \textbf{Clasificación}. Finalmente, necesitamos aplicar algún algoritmo que nos permita decidir que objetos han sido reconocidos en cada imagen. Para ello, podemos aplicar cualquier algoritmo de clasificación. Para poder resolver el problema de clasificación, tenemos que tener una base de datos etiquetada previamente, que nos permita aplicar técnicas de clasificación supervisada, como podría ser un árbol de decisión.
+\end{itemize}
+
+\section{Bibliografía.}
+
+\begin{itemize}
+	\item \href{http://www.crit.upc.edu/JCEE2011/pdf_ponencies/PDFs/17_11_11/Sistemas\%20de\%20Vision\%20Artificial.pdf}{Sistemas de visión artificial.}
+	\item \href{https://blog.infaimon.com/sistemas-de-vision-artificial-tipos-aplicaciones/}{Sistemas de visión artificial: tipos y aplicaciones}
+\end{itemize}
+
+\end{document}

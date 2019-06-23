@@ -1,0 +1,86 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsfonts}
+\usepackage{listings}
+\usepackage[T1]{fontenc}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{textcomp}
+
+\title{Trabajo 5 - Detección de peatones.}
+\author{Néstor Rodríguez Vico. DNI: 75573052C - \href{mailto:nrv23@correo.ugr.es}{nrv23@correo.ugr.es}}
+\date{\today}
+
+
+\lstdefinestyle{bash_style}{
+	language=MatLab,
+	frame=single,
+	xleftmargin=.25in,
+	upquote = true,
+	basicstyle=\scriptsize,
+	breakatwhitespace=false,         
+	breaklines=true,                 
+	captionpos=b,                    
+	keepspaces=true,                 
+	numbers=left,                    
+	numbersep=5pt,                  
+	showspaces=false,                
+	showstringspaces=false,
+	showtabs=false,                  
+	tabsize=2,
+	upquote=true
+}
+
+\lstset{style=bash_style}
+
+\begin{document}
+
+\maketitle
+
+\setlength{\belowdisplayskip}{5pt} 
+\setlength{\belowdisplayshortskip}{5pt}
+\setlength{\abovedisplayskip}{5pt} 
+\setlength{\abovedisplayshortskip}{5pt}
+
+\section{Solución.}
+
+Junto a este documento se entrega el fichero \textit{hog.m} donde se ha implementado el descriptor y se ha hecho uso de una \textit{SVM} para el proceso de clasificación. Los pasos usados para implementar el descriptor han sido:
+
+\begin{enumerate}
+	\item Calculamos los gradientes en X y en Y.
+	\item Calculamos la orientación y la magnitud del gradiente en cada píxel.
+	\item Dividimos la imagen en celdas. Para cada celda calculamos el histograma de gradientes ponderado, tal y como viene explicado en el PDF.
+	\item A continuación, agrupamos las celdas en bloques y creamos un ``histograma'' a nivel de bloque como la concatenación de los histogramas de las celdas que conforman el bloque. Finalmente, normalizamos el histograma del bloque saturando los valores que superan el \textit{0.2} a \textit{0.2}.
+	\item Una vez tenemos los histogramas normalizados, los concatenamos para tener un único vector que describa la imagen.
+\end{enumerate}
+
+\section{Resultados.}
+
+Para el conjunto de \textit{trian}, la matriz de confusión es la siguiente:
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{c|c}
+		41 & 1 \\ \hline
+		0 & 318
+	\end{tabular}
+\end{table}
+
+Obtenemos un \textit{accuracy} de \textit{0.9972}. Para el conjunto de \textit{test}, la matriz de confusión es la siguiente:
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{c|c}
+		8 & 0 \\ \hline
+		1 & 81
+	\end{tabular}
+\end{table}
+
+Obtenemos un \textit{accuracy} de \textit{0.9889}.
+
+\end{document}
