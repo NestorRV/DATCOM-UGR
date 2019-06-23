@@ -1,0 +1,25 @@
+\begin{tikzpicture}[
+    any/.style={minimum width=6cm,minimum height=6cm,%
+                 text width=5.5cm,align=center,outer sep=0pt},
+    header/.style={any,minimum height=1cm,fill=black!10},
+    leftcol/.style={header,rotate=90},
+    mycolor/.style={fill=#1, text=#1!95!black}
+]
+
+\matrix (SWOT) [matrix of nodes,nodes={any,anchor=center},%
+                column sep=-\pgflinewidth,%
+                row sep=-\pgflinewidth,%
+                row 1/.style={nodes=header},%
+                column 1/.style={nodes=leftcol},
+                inner sep=0pt]
+{
+          &|[fill=helpful]| {\texta} & |[fill=harmful]| {\textb} \\
+			|[fill=internal]| {\textcn} & |[mycolor=F]| \back{F} & |[mycolor=D]| \back{D} \\
+			|[fill=external]| {\textdn} & |[mycolor=O]| \back{O} & |[mycolor=A]| \back{A} \\
+};
+
+\node[any, anchor=center] at (SWOT-2-2) {Sistema visual e intuitivo. \\ \vspace{0.15cm} Gratuito. \\ \vspace{0.15cm} Curva de aprendizaje rápida. \\ \vspace{0.15cm} Resultados en tiempo real.};
+\node[any, anchor=center] at (SWOT-2-3) {Ausencia de ideas. \\ \vspace{0.15cm} Desconfianza por parte del usuario en hacerlo uno mismo. \\ \vspace{0.15cm} Entrar en un mercado establecido y maduro.};
+\node[any, anchor=center] at (SWOT-3-2) {La gente está más familiarizada con la tecnología y muchos buscan la idea de promocionar su negocio mediante una página \textit{web}. \\ \vspace{0.15cm} Si no buscas una página \textit{web} muy compleja, puedes tenerla de forma gratuita, sin necesidad de contratar a un estudio de diseño \textit{web}.};
+\node[any, anchor=center] at (SWOT-3-3) {Los usuarios potenciales pueden pensar que no tienen conocimientos suficientes y que no merece la pena ni intentarlo.\\ \vspace{0.15cm} Hoy en día es más fácil conocer a un amigo que sepa algo de informática y te pueda hacer una página \textit{web} básica sin tener que hacerlo tú.};
+\end{tikzpicture}
